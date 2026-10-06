@@ -1,4 +1,4 @@
 nonebot2[websockets]==2.5.0
-nonebot-adapter-qq==1.6.2
+nonebot-adapter-qq
 uvicorn
 httpx
