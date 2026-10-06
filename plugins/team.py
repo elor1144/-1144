@@ -11,11 +11,11 @@ ADMIN_OPENIDS = {
     "FCE26E909EB5E50823B381543FD28CB0",
 }
 
-# 所有指令关键词（用于判断"是不是在叫X但说废话"）
 CMD_KEYWORDS = [
     "丹丹菜单", "丹丹组队", "定时提醒", "组队退出", "组队结束",
     "组队备注", "组队计数", "组队艾特", "组队历史",
 ]
+GREET_WORDS = ["你好", "您好", "hi", "hello", "嗨", "在吗", "在么", "早", "早上好", "晚上好", "下午好"]
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -105,18 +105,20 @@ def at_seg(openid, nick=""):
 async def handle(bot: Bot, event: Event):
     text = event.get_message().extract_plain_text().strip().strip("！!。.，,~～ ")
     if not text:
-        # 纯@没有文字，也提示
         if has_mention(event):
             await bot.send(event, "⭐这是什么意思呀？")
         return
     uid = str(event.get_user_id())
 
-    # @了X但不是指令 → 回复
-    if has_mention(event) and not any(kw in text for kw in CMD_KEYWORDS):
-        # 排除加入指令（1 昵称 角色 这种不带关键词的）
-        if not re.search(r"\b[12]\b", text):
-            await bot.send(event, "⭐这是什么意思呀？")
-            return
+    # 打招呼
+    if has_mention(event) and any(g in text.lower() for g in GREET_WORDS):
+        await bot.send(event, "你好呀⭐")
+        return
+
+    # @了X但不是指令也不是招呼 → 回复
+    if has_mention(event) and not any(kw in text for kw in CMD_KEYWORDS) and not re.search(r"\b[12]\b", text):
+        await bot.send(event, "⭐这是什么意思呀？")
+        return
 
     if "丹丹菜单" in text:
         await bot.send(event,
@@ -273,4 +275,11 @@ async def handle(bot: Bot, event: Event):
         return
 
     if "组队历史" in text:
-        hist = data.get("history", [])[](mqqapi://markdown/node?nodeType=loading)
+        hist = data.get("history", [])
+        if not hist:
+            await bot.send(event, "📜 还没有任何组队记录哦～"); return
+        lines = ["📜 最近组队记录（含备注名）："] + [
+            f"· {h.get('remark') or h.get('name') or ('第'+str(h.get('team_id'))+'队')}（{len(h.get('members',[]))}人）"
+            for h in hist[-10:]
+        ]
+        await bot.send(event, "\n".join(lines)); return
