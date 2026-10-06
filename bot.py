@@ -1,6 +1,9 @@
 import nonebot
 from nonebot import init
 from nonebot.adapters.qq import Adapter as QQAdapter
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
 
 nonebot.init(driver="~httpx+~websockets")
 
