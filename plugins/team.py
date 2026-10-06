@@ -49,7 +49,7 @@ def get_team(tid):
     return data["teams"].get(str(tid))
 
 def new_team(tid):
-    data["teams"][str(tid)] = {"members": [], "roles": {}, "remark": "", "active": True, "name": ""}
+    data["teams"][str(tid)] = {"members": {}, "remark": "", "active": True, "name": ""}
     save_data(data)
 
 def archive_team(tid):
@@ -57,7 +57,9 @@ def archive_team(tid):
     if not t:
         return
     data.setdefault("history", [])
-    data["history"].append({"team_id": tid, "remark": t.get("remark",""), "name": t.get("name",""), "members": list(t["members"])})
+    snap = {"team_id": tid, "remark": t.get("remark",""), "name": t.get("name",""),
+            "members": [ {"openid": k, **v} for k, v in t["members"].items() ]}
+    data["history"].append(snap)
     if len(data["history"]) > 50:
         data["history"] = data["history"][-50:]
     save_data(data)
@@ -78,40 +80,56 @@ def parse_duration(s):
         return n
     return None
 
+async def fetch_member(bot, event, openid):
+    info = {"openid": openid, "nick": "", "uin": str(openid)}
+    try:
+        gid = getattr(event, "group_id", None) or getattr(event, "guild_id", None)
+        if gid and hasattr(bot, "get_group_member_info"):
+            r = await bot.get_group_member_info(group_id=gid, user_id=openid)
+            info["nick"] = r.get("nickname") or r.get("card") or ""
+            info["uin"] = str(r.get("user_id") or openid)
+    except Exception:
+        pass
+    return info
+
+def at_seg(openid, nick=""):
+    try:
+        return str(MessageSegment.mention_user(user_id=openid))
+    except Exception:
+        try:
+            return str(MessageSegment.mention_qid(openid))
+        except Exception:
+            return f"@{nick}" if nick else str(openid)
+
+def disp_name(m):
+    nick = m.get("nick") or ""
+    uin = m.get("uin") or m.get("openid") or ""
+    if nick and uin and uin != m.get("openid"):
+        return f"{nick}（{uin}）"
+    if nick:
+        return nick
+    return uin
+
 @on_message(priority=1).handle()
 async def handle(bot: Bot, event: Event):
     text = event.get_message().extract_plain_text().strip().strip("！!。.，,~～ ")
     if not text:
         return
-    # 全部用包含/正则判断，带不带@都行
-    join_hit = bool(re.search(r"\b[12]\s+\S+$", text))
-    if ("丹丹菜单" not in text
-        and "丹丹组队" not in text
-        and "组队退出" not in text
-        and "组队结束" not in text
-        and "组队备注" not in text
-        and "组队计数" not in text
-        and "组队艾特" not in text
-        and "组队历史" not in text
-        and not text.startswith("定时提醒")
-        and not join_hit
-        and not re.search(r"(?:^|\s)[12]$", text)):
-        return
     uid = str(event.get_user_id())
 
     if "丹丹菜单" in text:
         await bot.send(event,
-            "🤖 组队助手 菜单\n━━━━━━━━\n"
-            "【开队】丹丹组队1 / 丹丹组队2（管理员，开队即存档）\n"
-            "【加入】发 1 +名称 加入队伍\n"
-            "【退出】组队退出1 / 组队退出2（自己退）\n"
-            "【帮退】组队退出1 @某人 / 组队退出2 @某人（管理员）\n"
-            "【结束】组队结束1 / 组队结束2（管理员）\n"
-            "【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
-            "【定时】定时提醒 10分钟 内容（管理员）\n"
-            "【计数】组队计数1 / 组队计数2\n"
-            "【艾特】组队艾特1 / 组队艾特2\n"
-            "【历史】组队历史\n━━━━━━━━\n满8人自动艾特")
+            "⭐ 组队助手 菜单\n━━━━━━━━\n"
+            "💫【开队】丹丹组队1 / 丹丹组队2（管理员，开队即存档）\n"
+            "💫【加入】发 1 +名称 加入队伍\n"
+            "💫【退出】组队退出1 / 组队退出2（自己退）\n"
+            "💫【帮退】组队退出1 @某人 / 组队退出2 @某人（管理员）\n"
+            "💫【结束】组队结束1 / 组队结束2（管理员）\n"
+            "💫【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
+            "💫【定时】定时提醒 10分钟 内容（管理员）\n"
+            "💫【计数】组队计数1 / 组队计数2\n"
+            "💫【艾特】组队艾特1 / 组队艾特2\n"
+            "💫【历史】组队历史\n━━━━━━━━\n满8人自动艾特")
         return
 
     if "丹丹组队" in text:
@@ -126,10 +144,10 @@ async def handle(bot: Bot, event: Event):
         await bot.send(event, f"第{tid}队已开启，最多两队并存～\n想加入的直接发「1 你的名称」即可")
         return
 
-    if text.startswith("定时提醒"):
+    if "定时提醒" in text:
         if not is_admin(event):
             await bot.send(event, "[error] 只有管理员才能设提醒哦～"); return
-        body = text[len("定时提醒"):].strip()
+        body = text.split("定时提醒", 1)[1].strip()
         mm = re.match(r"^(\d+\s*(?:分钟|分|小时|时|秒))\s*(.*)$", body)
         if not mm:
             await bot.send(event, "[error] 格式：定时提醒 10分钟 提醒内容"); return
@@ -142,7 +160,6 @@ async def handle(bot: Bot, event: Event):
         await bot.send(event, f"⏰ 提醒：{msg}")
         return
 
-    # 加入
     m = re.search(r"\b([12])\s+(\S+)$", text)
     if m:
         tid = int(m.group(1)); name = m.group(2).strip()
@@ -151,21 +168,22 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, f"[error] 第{tid}队还没开，先发「丹丹组队{tid}」～"); return
         if uid in t["members"]:
             await bot.send(event, f"[error] 你已经在本队啦，当前 {len(t['members'])} 人"); return
-        t["members"].append(uid)
-        t["roles"][uid] = name
+        info = await fetch_member(bot, event, uid)
+        info["role"] = name
+        t["members"][uid] = info
         save_data(data)
-        if len(t["members"]) >= MAX_MEMBER:
-            ats = "".join(str(MessageSegment.mention_qid(q)) for q in t["members"])
+        cnt = len(t["members"])
+        if cnt >= MAX_MEMBER:
+            ats = "".join(at_seg(v["openid"], v.get("nick","")) for v in t["members"].values())
             archive_team(tid)
-            await bot.send(event, f"加入成功！当前人数{len(t['members'])}人\n名称：{name}\n已满员！\n{ats}")
+            await bot.send(event, f'第{tid}队："{(label(t) or "第"+str(tid)+"队")}"\n已满员！\n{ats}')
         else:
-            await bot.send(event, f"加入成功！当前人数{len(t['members'])}人\n名称：{name}")
+            await bot.send(event, f"加入成功！当前人数{cnt}人\n名称：{name}")
         return
 
     if re.search(r"(?:^|\s)([12])$", text):
         await bot.send(event, "[error] 请在后面加上名称！"); return
 
-    # 帮退：组队退出1 @某人 / 组队退出2 @某人
     if "组队退出" in text and get_mentions(event):
         if not is_admin(event):
             await bot.send(event, "[error] 只有管理员才能帮别人退队哦～"); return
@@ -174,10 +192,9 @@ async def handle(bot: Bot, event: Event):
         t = get_team(tid)
         if not t or not t["active"]:
             await bot.send(event, f"[error] 第{tid}队没开着呢～"); return
-        removed = []
-        for tg in targets:
-            if tg in t["members"]:
-                t["members"].remove(tg); t["roles"].pop(tg, None); removed.append(tg)
+        removed = [tg for tg in targets if tg in t["members"]]
+        for tg in removed:
+            t["members"].pop(tg, None)
         save_data(data)
         if removed:
             await bot.send(event, f"已帮 {len(removed)} 人从第{tid}队退出，当前 {len(t['members'])} 人")
@@ -185,14 +202,13 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, f"[error] 被@的人不在第{tid}队里哦～")
         return
 
-    # 自己退：组队退出1 / 组队退出2（没@人）
     if "组队退出" in text:
         tid = 1 if "1" in text else 2
         t = get_team(tid)
         if not t or not t["active"]:
             await bot.send(event, f"[error] 第{tid}队没开着呢～"); return
         if uid in t["members"]:
-            t["members"].remove(uid); t["roles"].pop(uid, None); save_data(data)
+            t["members"].pop(uid, None); save_data(data)
             await bot.send(event, f"退出成功！第{tid}队当前人数{len(t['members'])}人")
         else:
             await bot.send(event, "[error] 你不在本队里哦～")
@@ -213,8 +229,7 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, "[error] 只有管理员才能改备注～"); return
         tid = 1 if "1" in text else 2
         name = text.split("组队备注", 1)[1]
-        name = name.replace("1", "", 1).replace("2", "", 1).strip() if name.startswith("1") or name.startswith("2") else name.strip()
-        name = name.strip()
+        name = name[1:].strip() if name and name[0] in "12" else name.strip()
         t = get_team(tid)
         if not t:
             await bot.send(event, f"[error] 第{tid}队还没开～"); return
@@ -228,10 +243,10 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, f"[error] 第{tid}队没开着呢～"); return
         lab = label(t) or f"第{tid}队"
         if not t["members"]:
-            await bot.send(event, f"{lab} 已有 0 人"); return
-        lines = [f"{lab} 已有 {len(t['members'])} 人："] + [
-            f"{i}. {q} — {t['roles'].get(q, '未选名称')}" for i, q in enumerate(t["members"], 1)
-        ]
+            await bot.send(event, f'第{tid}队："{lab}"\n当前成员：\n（暂无）'); return
+        lines = [f'第{tid}队："{lab}"', "当前成员："]
+        for i, v in enumerate(t["members"].values(), 1):
+            lines.append(f"{i}. {disp_name(v)} （备注：{v.get('role','未选名称')}）")
         await bot.send(event, "\n".join(lines)); return
 
     if "组队艾特" in text:
@@ -242,12 +257,12 @@ async def handle(bot: Bot, event: Event):
         lab = label(t) or f"第{tid}队"
         if not t["members"]:
             await bot.send(event, f"[error] {lab} 暂时没人～"); return
-        ats = "".join(str(MessageSegment.mention_qid(q)) for q in t["members"])
+        ats = "".join(at_seg(v["openid"], v.get("nick","")) for v in t["members"].values())
         diff = MAX_MEMBER - len(t["members"])
         if diff > 0:
-            await bot.send(event, f"{lab}名单：\n{ats}\n(艾特完成 还差{diff}人满人)")
+            await bot.send(event, f'{lab}名单：\n{ats}\n(艾特完成 还差{diff}人满人)')
         else:
-            await bot.send(event, f"{lab}名单：\n{ats}")
+            await bot.send(event, f'{lab}名单：\n{ats}')
         return
 
     if "组队历史" in text:
