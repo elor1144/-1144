@@ -96,7 +96,7 @@ async def handle(bot: Bot, event: Event):
         await bot.send(event,
             "🤖 组队助手 菜单\n━━━━━━━━\n"
             "【开队】丹丹组队1 / 丹丹组队2（管理员，开队即存档）\n"
-            "【加入】发 1 +角色 加入队伍\n"
+            "【加入】发 1 +名称 加入队伍\n"
             "【退出】组队退出1 / 组队退出2（自己退）\n"
             "【帮退】组队退出1 @某人 / 组队退出2 @某人（管理员）\n"
             "【结束】组队结束1 / 组队结束2（管理员）\n"
@@ -116,7 +116,7 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, f"[error] 第{tid}队已经在开了～"); return
         new_team(tid)
         archive_team(tid)
-        await bot.send(event, f"第{tid}队已开启，最多两队并存～\n想加入的直接发「1 你的角色」即可")
+        await bot.send(event, f"第{tid}队已开启，最多两队并存～\n想加入的直接发「1 你的名称」即可")
         return
 
     if text.startswith("定时提醒"):
@@ -137,23 +137,23 @@ async def handle(bot: Bot, event: Event):
 
     m = re.match(r"^([12])(?:\s+(.*))?$", text)
     if m:
-        tid = int(m.group(1)); role = (m.group(2) or "").strip()
-        if not role:
-            await bot.send(event, "[error] 请在后面加上角色！"); return
+        tid = int(m.group(1)); name = (m.group(2) or "").strip()
+        if not name:
+            await bot.send(event, "[error] 请在后面加上名称！"); return
         t = get_team(tid)
         if not t or not t["active"]:
             await bot.send(event, f"[error] 第{tid}队还没开，先发「丹丹组队{tid}」～"); return
         if uid in t["members"]:
             await bot.send(event, f"[error] 你已经在本队啦，当前 {len(t['members'])} 人"); return
         t["members"].append(uid)
-        t["roles"][uid] = role
+        t["roles"][uid] = name
         save_data(data)
         if len(t["members"]) >= MAX_MEMBER:
             ats = "".join(str(MessageSegment.mention_qid(q)) for q in t["members"])
             archive_team(tid)
-            await bot.send(event, f"加入成功！当前人数{len(t['members'])}人\n角色：{role}\n已满员！\n{ats}")
+            await bot.send(event, f"加入成功！当前人数{len(t['members'])}人\n名称：{name}\n已满员！\n{ats}")
         else:
-            await bot.send(event, f"加入成功！当前人数{len(t['members'])}人\n角色：{role}")
+            await bot.send(event, f"加入成功！当前人数{len(t['members'])}人\n名称：{name}")
         return
 
     if text.startswith("组队退出1 ") or text.startswith("组队退出2 "):
@@ -219,7 +219,7 @@ async def handle(bot: Bot, event: Event):
         if not t["members"]:
             await bot.send(event, f"{lab} 已有 0 人"); return
         lines = [f"{lab} 已有 {len(t['members'])} 人："] + [
-            f"{i}. {q} — {t['roles'].get(q, '未选角色')}" for i, q in enumerate(t["members"], 1)
+            f"{i}. {q} — {t['roles'].get(q, '未选名称')}" for i, q in enumerate(t["members"], 1)
         ]
         await bot.send(event, "\n".join(lines)); return
 
