@@ -5,7 +5,7 @@ import json, os
 BASE = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE, "team_data.json")
 MAX_MEMBER = 8
-ADMIN_OPENIDS = set()  # 可选：填特定openid，不需要就留空
+ADMIN_OPENIDS = set()
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -29,7 +29,6 @@ def is_admin(event):
     return str(event.get_user_id()) in ADMIN_OPENIDS
 
 def get_mentions(event):
-    # 取出消息里所有被@的人的 openid
     res = []
     for seg in event.get_message():
         if seg.type == "mention":
@@ -65,9 +64,8 @@ async def handle(bot: Bot, event: Event):
         return
     if text not in (
         "丹丹菜单","丹丹组队1","丹丹组队2","1","2",
-        "组队退出1","组队退出2","组队开始1","组队开始2",
-        "组队结束1","组队结束2","组队计数1","组队计数2",
-        "组队艾特1","组队艾特2","组队历史"
+        "组队退出1","组队退出2","组队结束1","组队结束2",
+        "组队计数1","组队计数2","组队艾特1","组队艾特2","组队历史"
     ) and not text.startswith("组队备注") and not text.startswith("组队退出 "):
         return
     uid = str(event.get_user_id())
@@ -79,7 +77,6 @@ async def handle(bot: Bot, event: Event):
             "【加入】直接发 1 / 2\n"
             "【退出】组队退出1 / 组队退出2（自己退）\n"
             "【帮退】组队退出1 @某人 / 组队退出2 @某人（管理员）\n"
-            "【存档】组队开始1 / 组队开始2（管理员）\n"
             "【结束】组队结束1 / 组队结束2（管理员）\n"
             "【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
             "【计数】组队计数1 / 组队计数2\n"
@@ -95,10 +92,10 @@ async def handle(bot: Bot, event: Event):
         if t and t["active"]:
             await bot.send(event, f"第{tid}队已经在开了～"); return
         new_team(tid)
+        archive_team(tid)
         await bot.send(event, f"第{tid}队已开启，最多两队并存～\n想加入的直接发「1」即可")
         return
 
-    # 管理员帮成员退出：组队退出1 @某人 / 组队退出2 @某人
     if text.startswith("组队退出1 ") or text.startswith("组队退出2 "):
         if not is_admin(event):
             await bot.send(event, "只有管理员才能帮别人退队哦～"); return
@@ -152,13 +149,6 @@ async def handle(bot: Bot, event: Event):
         else:
             await bot.send(event, "你不在本队里哦～")
         return
-
-    if text.startswith("组队开始"):
-        if not is_admin(event):
-            await bot.send(event, "只有管理员才能存档哦～"); return
-        tid = 1 if "1" in text else 2
-        archive_team(tid)
-        await bot.send(event, "组队已开始，已保存记录"); return
 
     if text.startswith("组队结束"):
         if not is_admin(event):
