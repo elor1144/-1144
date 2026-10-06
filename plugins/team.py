@@ -6,7 +6,9 @@ team_data = {}
 
 team = on_command("组队", priority=5)
 count = on_command("计数", priority=5)
-remark = on_command("备注", priority=5)@count.handle()
+remark = on_command("备注", priority=5)
+
+@count.handle()
 async def _(event: MessageEvent):
     gid = event.get_group_id()
     data = team_data.get(gid, {"members": []})
