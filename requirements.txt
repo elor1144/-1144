@@ -1,5 +1,4 @@
 nonebot2==2.5.0
 nonebot-adapter-qq==1.6.2
-fastapi
 uvicorn
 httpx
