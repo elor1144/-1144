@@ -5,6 +5,7 @@ import json, os
 BASE = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE, "team_data.json")
 MAX_MEMBER = 8
+ADMIN_OPENIDS = set()  # 可选：填特定openid，不需要就留空
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -22,7 +23,20 @@ def save_data(d):
 data = load_data()
 
 def is_admin(event):
-    return True  # 官方机器人拿不到QQ号，群内使用暂不限制
+    role = getattr(getattr(event, "member", None), "role", None)
+    if role in ("owner", "admin"):
+        return True
+    return str(event.get_user_id()) in ADMIN_OPENIDS
+
+def get_mentions(event):
+    # 取出消息里所有被@的人的 openid
+    res = []
+    for seg in event.get_message():
+        if seg.type == "mention":
+            uid = str(seg.data.get("user_id", ""))
+            if uid:
+                res.append(uid)
+    return res
 
 def get_team(tid):
     return data["teams"].get(str(tid))
@@ -54,31 +68,56 @@ async def handle(bot: Bot, event: Event):
         "组队退出1","组队退出2","组队开始1","组队开始2",
         "组队结束1","组队结束2","组队计数1","组队计数2",
         "组队艾特1","组队艾特2","组队历史"
-    ) and not text.startswith("组队备注"):
+    ) and not text.startswith("组队备注") and not text.startswith("组队退出 "):
         return
     uid = str(event.get_user_id())
 
     if text == "丹丹菜单":
         await bot.send(event,
             "🤖 组队助手 菜单\n━━━━━━━━\n"
-            "【开队】丹丹组队1 / 丹丹组队2\n"
+            "【开队】丹丹组队1 / 丹丹组队2（管理员）\n"
             "【加入】直接发 1 / 2\n"
-            "【退出】组队退出1 / 组队退出2\n"
-            "【存档】组队开始1 / 组队开始2\n"
-            "【结束】组队结束1 / 组队结束2\n"
-            "【备注】组队备注1 / 组队备注2 + 名称\n"
+            "【退出】组队退出1 / 组队退出2（自己退）\n"
+            "【帮退】组队退出1 @某人 / 组队退出2 @某人（管理员）\n"
+            "【存档】组队开始1 / 组队开始2（管理员）\n"
+            "【结束】组队结束1 / 组队结束2（管理员）\n"
+            "【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
             "【计数】组队计数1 / 组队计数2\n"
             "【艾特】组队艾特1 / 组队艾特2\n"
             "【历史】组队历史\n━━━━━━━━\n满8人自动艾特+存档")
         return
 
     if text in ("丹丹组队1","丹丹组队2"):
+        if not is_admin(event):
+            await bot.send(event, "只有管理员才能开队哦～"); return
         tid = 1 if text.endswith("1") else 2
         t = get_team(tid)
         if t and t["active"]:
             await bot.send(event, f"第{tid}队已经在开了～"); return
         new_team(tid)
-        await bot.send(event, f"第{tid}队已开启，最多两队并存～")
+        await bot.send(event, f"第{tid}队已开启，最多两队并存～\n想加入的直接发「1」即可")
+        return
+
+    # 管理员帮成员退出：组队退出1 @某人 / 组队退出2 @某人
+    if text.startswith("组队退出1 ") or text.startswith("组队退出2 "):
+        if not is_admin(event):
+            await bot.send(event, "只有管理员才能帮别人退队哦～"); return
+        tid = 1 if "1" in text[:7] else 2
+        targets = get_mentions(event)
+        if not targets:
+            await bot.send(event, "要在指令后面 @ 要移除的成员哦～"); return
+        t = get_team(tid)
+        if not t or not t["active"]:
+            await bot.send(event, f"第{tid}队没开着呢～"); return
+        removed = []
+        for tg in targets:
+            if tg in t["members"]:
+                t["members"].remove(tg); removed.append(tg)
+        save_data(data)
+        if removed:
+            await bot.send(event, f"已帮 {len(removed)} 人从第{tid}队退出，当前 {len(t['members'])} 人")
+        else:
+            await bot.send(event, f"被@的人不在第{tid}队里哦～")
         return
 
     if text == "1":
@@ -102,8 +141,8 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, f"加入成功！当前人数{len(t['members'])}人")
         return
 
-    if text.startswith("组队退出"):
-        tid = 1 if "1" in text else 2
+    if text in ("组队退出1","组队退出2"):
+        tid = 1 if text.endswith("1") else 2
         t = get_team(tid)
         if not t or not t["active"]:
             await bot.send(event, f"第{tid}队没开着呢～"); return
@@ -115,11 +154,15 @@ async def handle(bot: Bot, event: Event):
         return
 
     if text.startswith("组队开始"):
+        if not is_admin(event):
+            await bot.send(event, "只有管理员才能存档哦～"); return
         tid = 1 if "1" in text else 2
         archive_team(tid)
         await bot.send(event, "组队已开始，已保存记录"); return
 
     if text.startswith("组队结束"):
+        if not is_admin(event):
+            await bot.send(event, "只有管理员才能结束组队～"); return
         tid = 1 if "1" in text else 2
         t = get_team(tid)
         if not t:
@@ -128,6 +171,8 @@ async def handle(bot: Bot, event: Event):
         await bot.send(event, f"第{tid}队已停止组队"); return
 
     if text.startswith("组队备注"):
+        if not is_admin(event):
+            await bot.send(event, "只有管理员才能改备注～"); return
         tid = 1 if "1" in text else 2
         name = text.replace("组队备注1","").replace("组队备注2","").replace("组队备注","").strip()
         t = get_team(tid)
