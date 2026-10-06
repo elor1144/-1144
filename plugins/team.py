@@ -88,7 +88,7 @@ async def handle(bot: Bot, event: Event):
         "组队退出1","组队退出2","组队结束1","组队结束2",
         "组队计数1","组队计数2","组队艾特1","组队艾特2","组队历史"
     ) and not text.startswith("组队备注") and not text.startswith("组队退出 ") \
-       and not text.startswith("定时提醒") and not re.match(r"^12?$", text):
+       and not text.startswith("定时提醒") and not re.search(r"\b12?$", text):
         return
     uid = str(event.get_user_id())
 
@@ -135,11 +135,10 @@ async def handle(bot: Bot, event: Event):
         await bot.send(event, f"⏰ 提醒：{msg}")
         return
 
-    m = re.match(r"^([12])(?:\s+(.*))?$", text)
+    # 加入：@X 1 名称 / 1 名称 都认
+    m = re.search(r"\b([12])\s+(\S+)$", text)
     if m:
-        tid = int(m.group(1)); name = (m.group(2) or "").strip()
-        if not name:
-            await bot.send(event, "[error] 请在后面加上名称！"); return
+        tid = int(m.group(1)); name = m.group(2).strip()
         t = get_team(tid)
         if not t or not t["active"]:
             await bot.send(event, f"[error] 第{tid}队还没开，先发「丹丹组队{tid}」～"); return
@@ -155,6 +154,10 @@ async def handle(bot: Bot, event: Event):
         else:
             await bot.send(event, f"加入成功！当前人数{len(t['members'])}人\n名称：{name}")
         return
+
+    # 孤立 1 / 2 无名称
+    if re.search(r"(?:^|\s)([12])$", text):
+        await bot.send(event, "[error] 请在后面加上名称！"); return
 
     if text.startswith("组队退出1 ") or text.startswith("组队退出2 "):
         if not is_admin(event):
