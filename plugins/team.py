@@ -5,7 +5,10 @@ import json, os, asyncio, re
 BASE = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE, "team_data.json")
 MAX_MEMBER = 8
-ADMIN_OPENIDS = set()
+ADMIN_OPENIDS = {
+    "BE17FB9434A14FFED902CDAE49C7B606",   # EX 群里发消息的号
+    "FCE26E909EB5E50823B381543FD28CB0",   # 另一个号
+}
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -23,10 +26,14 @@ def save_data(d):
 data = load_data()
 
 def is_admin(event):
-    role = getattr(getattr(event, "member", None), "role", None)
-    if role in ("owner", "admin"):
+    uid = str(event.get_user_id())
+    if uid in ADMIN_OPENIDS:
         return True
-    return str(event.get_user_id()) in ADMIN_OPENIDS
+    for attr in ("member", "author"):
+        role = getattr(getattr(event, attr, None), "role", None)
+        if role in ("owner", "admin"):
+            return True
+    return False
 
 def get_mentions(event):
     res = []
