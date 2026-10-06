@@ -1,12 +1,11 @@
 from nonebot import on_message
-from nonebot.adapters.qq import Bot, MessageSegment
-from nonebot.adapters.qq.event import GroupAtMessageCreateEvent
+from nonebot.adapters.qq import Bot, MessageSegment, Event
 import json, os
 
 BASE = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE, "team_data.json")
 MAX_MEMBER = 8
-ADMIN_QQS = set()
+ADMIN_QQS = {"2963592929", "3166683679", "385697093"}  # 管理员QQ号，多个用逗号加
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -24,7 +23,7 @@ def save_data(d):
 data = load_data()
 
 def is_admin(event):
-    return event.sender.role in ("owner", "admin") or str(event.get_user_id()) in ADMIN_QQS
+    return str(event.get_user_id()) in ADMIN_QQS
 
 def get_team(tid):
     return data["teams"].get(str(tid))
@@ -38,12 +37,7 @@ def archive_team(tid):
     if not t:
         return
     data.setdefault("history", [])
-    data["history"].append({
-        "team_id": tid,
-        "remark": t.get("remark", ""),
-        "name": t.get("name", ""),
-        "members": list(t["members"]),
-    })
+    data["history"].append({"team_id": tid, "remark": t.get("remark",""), "name": t.get("name",""), "members": list(t["members"])})
     if len(data["history"]) > 50:
         data["history"] = data["history"][-50:]
     save_data(data)
@@ -52,9 +46,16 @@ def label(t):
     return t.get("remark") or t.get("name") or ""
 
 @on_message(priority=1).handle()
-async def handle(bot: Bot, event: GroupAtMessageCreateEvent):
+async def handle(bot: Bot, event: Event):
     text = event.get_message().extract_plain_text().strip().strip("！!。.，,~～ ")
     if not text:
+        return
+    if text not in (
+        "丹丹菜单","丹丹组队1","丹丹组队2","1","2",
+        "组队退出1","组队退出2","组队开始1","组队开始2",
+        "组队结束1","组队结束2","组队计数1","组队计数2",
+        "组队艾特1","组队艾特2","组队历史"
+    ) and not text.startswith("组队备注"):
         return
     uid = str(event.get_user_id())
 
@@ -72,7 +73,7 @@ async def handle(bot: Bot, event: GroupAtMessageCreateEvent):
             "【历史】组队历史\n━━━━━━━━\n满8人自动艾特+存档")
         return
 
-    if text in ("丹丹组队1", "丹丹组队2"):
+    if text in ("丹丹组队1","丹丹组队2"):
         if not is_admin(event):
             await bot.send(event, "只有管理员才能开队哦～"); return
         tid = 1 if text.endswith("1") else 2
@@ -163,7 +164,6 @@ async def handle(bot: Bot, event: GroupAtMessageCreateEvent):
         lab = label(t) or f"第{tid}队"
         if not t["members"]:
             await bot.send(event, f"{lab} 暂时没人～"); return
-        # 艾特用 mention_qid（qq号字符串），更稳定
         ats = "".join(str(MessageSegment.mention_qid(q)) for q in t["members"])
         diff = MAX_MEMBER - len(t["members"])
         if diff > 0:
