@@ -83,16 +83,23 @@ async def handle(bot: Bot, event: Event):
     text = event.get_message().extract_plain_text().strip().strip("！!。.，,~～ ")
     if not text:
         return
-    if text != "丹丹菜单" and text not in (
-        "丹丹组队1","丹丹组队2",
-        "组队退出1","组队退出2","组队结束1","组队结束2",
-        "组队计数1","组队计数2","组队艾特1","组队艾特2","组队历史"
-    ) and not text.startswith("组队备注") and not text.startswith("组队退出 ") \
-       and not text.startswith("定时提醒") and not re.search(r"\b12?$", text):
+    # 全部用包含/正则判断，带不带@都行
+    join_hit = bool(re.search(r"\b[12]\s+\S+$", text))
+    if ("丹丹菜单" not in text
+        and "丹丹组队" not in text
+        and "组队退出" not in text
+        and "组队结束" not in text
+        and "组队备注" not in text
+        and "组队计数" not in text
+        and "组队艾特" not in text
+        and "组队历史" not in text
+        and not text.startswith("定时提醒")
+        and not join_hit
+        and not re.search(r"(?:^|\s)[12]$", text)):
         return
     uid = str(event.get_user_id())
 
-    if text == "丹丹菜单":
+    if "丹丹菜单" in text:
         await bot.send(event,
             "🤖 组队助手 菜单\n━━━━━━━━\n"
             "【开队】丹丹组队1 / 丹丹组队2（管理员，开队即存档）\n"
@@ -107,10 +114,10 @@ async def handle(bot: Bot, event: Event):
             "【历史】组队历史\n━━━━━━━━\n满8人自动艾特")
         return
 
-    if text in ("丹丹组队1","丹丹组队2"):
+    if "丹丹组队" in text:
         if not is_admin(event):
             await bot.send(event, "[error] 只有管理员才能开队哦～"); return
-        tid = 1 if text.endswith("1") else 2
+        tid = 1 if "1" in text else 2
         t = get_team(tid)
         if t and t["active"]:
             await bot.send(event, f"[error] 第{tid}队已经在开了～"); return
@@ -135,7 +142,7 @@ async def handle(bot: Bot, event: Event):
         await bot.send(event, f"⏰ 提醒：{msg}")
         return
 
-    # 加入：@X 1 名称 / 1 名称 都认
+    # 加入
     m = re.search(r"\b([12])\s+(\S+)$", text)
     if m:
         tid = int(m.group(1)); name = m.group(2).strip()
@@ -155,17 +162,15 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, f"加入成功！当前人数{len(t['members'])}人\n名称：{name}")
         return
 
-    # 孤立 1 / 2 无名称
     if re.search(r"(?:^|\s)([12])$", text):
         await bot.send(event, "[error] 请在后面加上名称！"); return
 
-    if text.startswith("组队退出1 ") or text.startswith("组队退出2 "):
+    # 帮退：组队退出1 @某人 / 组队退出2 @某人
+    if "组队退出" in text and get_mentions(event):
         if not is_admin(event):
             await bot.send(event, "[error] 只有管理员才能帮别人退队哦～"); return
-        tid = 1 if "1" in text[:7] else 2
+        tid = 1 if "1" in text else 2
         targets = get_mentions(event)
-        if not targets:
-            await bot.send(event, "[error] 要在指令后面 @ 要移除的成员哦～"); return
         t = get_team(tid)
         if not t or not t["active"]:
             await bot.send(event, f"[error] 第{tid}队没开着呢～"); return
@@ -180,8 +185,9 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, f"[error] 被@的人不在第{tid}队里哦～")
         return
 
-    if text in ("组队退出1","组队退出2"):
-        tid = 1 if text.endswith("1") else 2
+    # 自己退：组队退出1 / 组队退出2（没@人）
+    if "组队退出" in text:
+        tid = 1 if "1" in text else 2
         t = get_team(tid)
         if not t or not t["active"]:
             await bot.send(event, f"[error] 第{tid}队没开着呢～"); return
@@ -192,7 +198,7 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, "[error] 你不在本队里哦～")
         return
 
-    if text.startswith("组队结束"):
+    if "组队结束" in text:
         if not is_admin(event):
             await bot.send(event, "[error] 只有管理员才能结束组队～"); return
         tid = 1 if "1" in text else 2
@@ -202,18 +208,20 @@ async def handle(bot: Bot, event: Event):
         t["active"] = False; save_data(data)
         await bot.send(event, f"第{tid}队已停止组队"); return
 
-    if text.startswith("组队备注"):
+    if "组队备注" in text:
         if not is_admin(event):
             await bot.send(event, "[error] 只有管理员才能改备注～"); return
         tid = 1 if "1" in text else 2
-        name = text.replace("组队备注1","").replace("组队备注2","").replace("组队备注","").strip()
+        name = text.split("组队备注", 1)[1]
+        name = name.replace("1", "", 1).replace("2", "", 1).strip() if name.startswith("1") or name.startswith("2") else name.strip()
+        name = name.strip()
         t = get_team(tid)
         if not t:
             await bot.send(event, f"[error] 第{tid}队还没开～"); return
         t["remark"] = name; t["name"] = name; save_data(data)
         await bot.send(event, f"组队{tid}备注成功，第{tid}队名称改为「{name}」"); return
 
-    if text.startswith("组队计数"):
+    if "组队计数" in text:
         tid = 1 if "1" in text else 2
         t = get_team(tid)
         if not t or not t["active"]:
@@ -226,7 +234,7 @@ async def handle(bot: Bot, event: Event):
         ]
         await bot.send(event, "\n".join(lines)); return
 
-    if text.startswith("组队艾特"):
+    if "组队艾特" in text:
         tid = 1 if "1" in text else 2
         t = get_team(tid)
         if not t or not t["active"]:
@@ -242,7 +250,7 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, f"{lab}名单：\n{ats}")
         return
 
-    if text == "组队历史":
+    if "组队历史" in text:
         hist = data.get("history", [])
         if not hist:
             await bot.send(event, "📜 还没有任何组队记录哦～"); return
