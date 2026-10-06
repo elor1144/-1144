@@ -5,7 +5,7 @@ import json, os
 BASE = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE, "team_data.json")
 MAX_MEMBER = 8
-ADMIN_QQS = {"2963592929", "3166683679", "385697093"}  # 管理员QQ号，多个用逗号加
+ADMIN_QQS = {"2963592929", "3166683679", "385697093"}
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -23,7 +23,8 @@ def save_data(d):
 data = load_data()
 
 def is_admin(event):
-    return str(event.get_user_id()) in ADMIN_QQS
+    uid = str(event.get_user_id())
+    return any(a in uid for a in ADMIN_QQS)
 
 def get_team(tid):
     return data["teams"].get(str(tid))
