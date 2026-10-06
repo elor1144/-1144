@@ -119,18 +119,25 @@ def at_seg(openid, nick=""):
 
 @on_message(priority=1).handle()
 async def handle(bot: Bot, event: Event):
+    # ===== DEBUG 开始 =====
+    try:
+        print("[DEBUG] segments:", [(seg.type, seg.data) for seg in event.get_message()])
+        print("[DEBUG] text:", repr(get_text(event)))
+        print("[DEBUG] uid:", str(event.get_user_id()))
+    except Exception as e:
+        print("[DEBUG] err:", e)
+    # ===== DEBUG 结束 =====
+
     text = get_text(event)
     if not text:
         await send_msgs(bot, event, "⭐这是什么意思呀？")
         return
     uid = str(event.get_user_id())
 
-    # 打招呼
     if any(g in text.lower() for g in GREET_WORDS):
         await send_msgs(bot, event, "你好呀⭐")
         return
 
-    # 不是指令也不是加队格式 → 回复
     if not any(kw in text for kw in CMD_KEYWORDS) and not re.search(r"\b[12]\b", text):
         await send_msgs(bot, event, "⭐这是什么意思呀？")
         return
