@@ -5,7 +5,7 @@ from nonebot.adapters.qq import Adapter as QQAdapter
 
 nonebot.init(
     qq_appid=os.environ.get("QQ_BOTID"),
-    qq_appsecret=os.environ.get("QQ_CLIENT_SECRET"),
+    qq_client_secret=os.environ.get("QQ_CLIENT_SECRET"),
     driver="~httpx",
 )
 
