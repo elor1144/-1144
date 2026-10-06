@@ -11,6 +11,12 @@ ADMIN_OPENIDS = {
     "FCE26E909EB5E50823B381543FD28CB0",
 }
 
+# 所有指令关键词（用于判断"是不是在叫X但说废话"）
+CMD_KEYWORDS = [
+    "丹丹菜单", "丹丹组队", "定时提醒", "组队退出", "组队结束",
+    "组队备注", "组队计数", "组队艾特", "组队历史",
+]
+
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
@@ -44,6 +50,12 @@ def get_mentions(event):
             if uid:
                 res.append(uid)
     return res
+
+def has_mention(event):
+    for seg in event.get_message():
+        if seg.type == "mention":
+            return True
+    return False
 
 def get_team(tid):
     return data["teams"].get(str(tid))
@@ -80,18 +92,6 @@ def parse_duration(s):
         return n
     return None
 
-async def fetch_member(bot, event, openid):
-    info = {"openid": openid, "nick": "", "uin": str(openid)}
-    try:
-        gid = getattr(event, "group_id", None) or getattr(event, "guild_id", None)
-        if gid and hasattr(bot, "get_group_member_info"):
-            r = await bot.get_group_member_info(group_id=gid, user_id=openid)
-            info["nick"] = r.get("nickname") or r.get("card") or ""
-            info["uin"] = str(r.get("user_id") or openid)
-    except Exception:
-        pass
-    return info
-
 def at_seg(openid, nick=""):
     try:
         return str(MessageSegment.mention_user(user_id=openid))
@@ -101,27 +101,28 @@ def at_seg(openid, nick=""):
         except Exception:
             return f"@{nick}" if nick else str(openid)
 
-def disp_name(m):
-    nick = m.get("nick") or ""
-    uin = m.get("uin") or m.get("openid") or ""
-    if nick and uin and uin != m.get("openid"):
-        return f"{nick}（{uin}）"
-    if nick:
-        return nick
-    return uin
-
 @on_message(priority=1).handle()
 async def handle(bot: Bot, event: Event):
     text = event.get_message().extract_plain_text().strip().strip("！!。.，,~～ ")
     if not text:
+        # 纯@没有文字，也提示
+        if has_mention(event):
+            await bot.send(event, "⭐这是什么意思呀？")
         return
     uid = str(event.get_user_id())
+
+    # @了X但不是指令 → 回复
+    if has_mention(event) and not any(kw in text for kw in CMD_KEYWORDS):
+        # 排除加入指令（1 昵称 角色 这种不带关键词的）
+        if not re.search(r"\b[12]\b", text):
+            await bot.send(event, "⭐这是什么意思呀？")
+            return
 
     if "丹丹菜单" in text:
         await bot.send(event,
             "⭐ 组队助手 菜单\n━━━━━━━━\n"
             "💫【开队】丹丹组队1 / 丹丹组队2（管理员，开队即存档）\n"
-            "💫【加入】发 1 +名称 加入队伍\n"
+            "💫【加入】发 1 玩家名 角色 加入队伍\n"
             "💫【退出】组队退出1 / 组队退出2（自己退）\n"
             "💫【帮退】组队退出1 @某人 / 组队退出2 @某人（管理员）\n"
             "💫【结束】组队结束1 / 组队结束2（管理员）\n"
@@ -141,7 +142,7 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, f"[error] 第{tid}队已经在开了～"); return
         new_team(tid)
         archive_team(tid)
-        await bot.send(event, f"第{tid}队已开启，最多两队并存～\n想加入的直接发「1 你的名称」即可")
+        await bot.send(event, f"第{tid}队已开启，最多两队并存～\n想加入的直接发「1 你的玩家名 你的角色」即可")
         return
 
     if "定时提醒" in text:
@@ -160,29 +161,28 @@ async def handle(bot: Bot, event: Event):
         await bot.send(event, f"⏰ 提醒：{msg}")
         return
 
-    m = re.search(r"\b([12])\s+(\S+)$", text)
+    m = re.search(r"\b([12])\s+(\S+)\s+(\S+)$", text)
     if m:
-        tid = int(m.group(1)); name = m.group(2).strip()
+        tid = int(m.group(1)); nick = m.group(2); role = m.group(3)
         t = get_team(tid)
         if not t or not t["active"]:
             await bot.send(event, f"[error] 第{tid}队还没开，先发「丹丹组队{tid}」～"); return
         if uid in t["members"]:
             await bot.send(event, f"[error] 你已经在本队啦，当前 {len(t['members'])} 人"); return
-        info = await fetch_member(bot, event, uid)
-        info["role"] = name
-        t["members"][uid] = info
+        t["members"][uid] = {"openid": uid, "nick": nick, "role": role}
         save_data(data)
         cnt = len(t["members"])
+        shown = f"{nick}（角色：{role}）"
         if cnt >= MAX_MEMBER:
             ats = "".join(at_seg(v["openid"], v.get("nick","")) for v in t["members"].values())
             archive_team(tid)
             await bot.send(event, f'第{tid}队："{(label(t) or "第"+str(tid)+"队")}"\n已满员！\n{ats}')
         else:
-            await bot.send(event, f"加入成功！当前人数{cnt}人\n名称：{name}")
+            await bot.send(event, f"加入成功！当前人数{cnt}人\n名称：{shown}")
         return
 
-    if re.search(r"(?:^|\s)([12])$", text):
-        await bot.send(event, "[error] 请在后面加上名称！"); return
+    if re.search(r"\b[12]\b", text):
+        await bot.send(event, "[error] 格式不对～ 请按：1 你的玩家名 你的角色（例：1 呃呃 彩球）"); return
 
     if "组队退出" in text and get_mentions(event):
         if not is_admin(event):
@@ -246,7 +246,9 @@ async def handle(bot: Bot, event: Event):
             await bot.send(event, f'第{tid}队："{lab}"\n当前成员：\n（暂无）'); return
         lines = [f'第{tid}队："{lab}"', "当前成员："]
         for i, v in enumerate(t["members"].values(), 1):
-            lines.append(f"{i}. {disp_name(v)} （备注：{v.get('role','未选名称')}）")
+            nm = v.get("nick") or ""
+            rl = v.get("role") or ""
+            lines.append(f"{i}. {nm}（角色：{rl}）")
         await bot.send(event, "\n".join(lines)); return
 
     if "组队艾特" in text:
@@ -257,20 +259,18 @@ async def handle(bot: Bot, event: Event):
         lab = label(t) or f"第{tid}队"
         if not t["members"]:
             await bot.send(event, f"[error] {lab} 暂时没人～"); return
-        ats = "".join(at_seg(v["openid"], v.get("nick","")) for v in t["members"].values())
+        lines = [f"{lab}名单（已加入 {len(t['members'])} 人）："]
+        for v in t["members"].values():
+            at = at_seg(v["openid"], v.get("nick",""))
+            nm = v.get("nick") or ""
+            rl = v.get("role") or ""
+            lines.append(f"{at} {nm}（角色：{rl}）")
         diff = MAX_MEMBER - len(t["members"])
+        msg = "\n".join(lines)
         if diff > 0:
-            await bot.send(event, f'{lab}名单：\n{ats}\n(艾特完成 还差{diff}人满人)')
-        else:
-            await bot.send(event, f'{lab}名单：\n{ats}')
+            msg += f"\n(艾特完成 还差{diff}人满人)"
+        await bot.send(event, msg)
         return
 
     if "组队历史" in text:
-        hist = data.get("history", [])
-        if not hist:
-            await bot.send(event, "📜 还没有任何组队记录哦～"); return
-        lines = ["📜 最近组队记录（含备注名）："] + [
-            f"· {h.get('remark') or h.get('name') or ('第'+str(h.get('team_id'))+'队')}（{len(h.get('members',[]))}人）"
-            for h in hist[-10:]
-        ]
-        await bot.send(event, "\n".join(lines)); return
+        hist = data.get("history", [])[](mqqapi://markdown/node?nodeType=loading)
