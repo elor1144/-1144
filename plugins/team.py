@@ -1,11 +1,12 @@
 from nonebot import on_message
-from nonebot.adapters.qq import Bot, MessageSegment, GroupMessageEvent
+from nonebot.adapters.qq import Bot, MessageSegment
+from nonebot.adapters.qq.event import GroupAtMessageCreateEvent
 import json, os
 
 BASE = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE, "team_data.json")
 MAX_MEMBER = 8
-ADMIN_QQS = set()  # 想指定某QQ为管理员就填这里，例如 {"123456789"}
+ADMIN_QQS = set()
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -23,7 +24,7 @@ def save_data(d):
 data = load_data()
 
 def is_admin(event):
-    return event.sender.role in ("owner", "admin") or event.get_user_id() in ADMIN_QQS
+    return event.sender.role in ("owner", "admin") or str(event.get_user_id()) in ADMIN_QQS
 
 def get_team(tid):
     return data["teams"].get(str(tid))
@@ -51,18 +52,15 @@ def label(t):
     return t.get("remark") or t.get("name") or ""
 
 @on_message(priority=1).handle()
-async def handle(bot: Bot, event: GroupMessageEvent):
-    # 容错：去掉首尾空格和常见标点（！!。.，,~～ 等）
+async def handle(bot: Bot, event: GroupAtMessageCreateEvent):
     text = event.get_message().extract_plain_text().strip().strip("！!。.，,~～ ")
     if not text:
         return
-    uid = event.get_user_id()
+    uid = str(event.get_user_id())
 
-    # 丹丹菜单
     if text == "丹丹菜单":
         await bot.send(event,
-            "🤖 组队助手 菜单\n"
-            "━━━━━━━━\n"
+            "🤖 组队助手 菜单\n━━━━━━━━\n"
             "【开队】丹丹组队1 / 丹丹组队2（管理员）\n"
             "【加入】直接发 1 / 2\n"
             "【退出】组队退出1 / 组队退出2\n"
@@ -71,12 +69,9 @@ async def handle(bot: Bot, event: GroupMessageEvent):
             "【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
             "【计数】组队计数1 / 组队计数2\n"
             "【艾特】组队艾特1 / 组队艾特2\n"
-            "【历史】组队历史\n"
-            "━━━━━━━━\n"
-            "满8人自动艾特+存档")
+            "【历史】组队历史\n━━━━━━━━\n满8人自动艾特+存档")
         return
 
-    # 丹丹组队1/2
     if text in ("丹丹组队1", "丹丹组队2"):
         if not is_admin(event):
             await bot.send(event, "只有管理员才能开队哦～"); return
@@ -88,7 +83,6 @@ async def handle(bot: Bot, event: GroupMessageEvent):
         await bot.send(event, f"第{tid}队已开启，最多两队并存～")
         return
 
-    # 加入：直接发 1 / 2
     if text == "1":
         tid = 1
     elif text == "2":
@@ -103,14 +97,13 @@ async def handle(bot: Bot, event: GroupMessageEvent):
             await bot.send(event, f"你已经在本队啦，当前 {len(t['members'])} 人"); return
         t["members"].append(uid); save_data(data)
         if len(t["members"]) >= MAX_MEMBER:
-            ats = "".join(str(MessageSegment.mention_qq(q)) for q in t["members"])
+            ats = "".join(str(MessageSegment.mention_qid(q)) for q in t["members"])
             archive_team(tid)
             await bot.send(event, f"加入成功！当前人数{len(t['members'])}人\n已满员！\n{ats}")
         else:
             await bot.send(event, f"加入成功！当前人数{len(t['members'])}人")
         return
 
-    # 组队退出1/2
     if text.startswith("组队退出"):
         tid = 1 if "1" in text else 2
         t = get_team(tid)
@@ -123,7 +116,6 @@ async def handle(bot: Bot, event: GroupMessageEvent):
             await bot.send(event, "你不在本队里哦～")
         return
 
-    # 组队开始1/2
     if text.startswith("组队开始"):
         if not is_admin(event):
             await bot.send(event, "只有管理员才能存档哦～"); return
@@ -131,7 +123,6 @@ async def handle(bot: Bot, event: GroupMessageEvent):
         archive_team(tid)
         await bot.send(event, "组队已开始，已保存记录"); return
 
-    # 组队结束1/2
     if text.startswith("组队结束"):
         if not is_admin(event):
             await bot.send(event, "只有管理员才能结束组队～"); return
@@ -142,7 +133,6 @@ async def handle(bot: Bot, event: GroupMessageEvent):
         t["active"] = False; save_data(data)
         await bot.send(event, f"第{tid}队已停止组队"); return
 
-    # 组队备注1/2 + 名称
     if text.startswith("组队备注"):
         if not is_admin(event):
             await bot.send(event, "只有管理员才能改备注～"); return
@@ -154,7 +144,6 @@ async def handle(bot: Bot, event: GroupMessageEvent):
         t["remark"] = name; t["name"] = name; save_data(data)
         await bot.send(event, f"组队{tid}备注成功，第{tid}队名称改为「{name}」"); return
 
-    # 组队计数1/2
     if text.startswith("组队计数"):
         tid = 1 if "1" in text else 2
         t = get_team(tid)
@@ -166,7 +155,6 @@ async def handle(bot: Bot, event: GroupMessageEvent):
         lines = [f"{lab} 已有 {len(t['members'])} 人："] + [f"{i}. {q}" for i, q in enumerate(t["members"], 1)]
         await bot.send(event, "\n".join(lines)); return
 
-    # 组队艾特1/2
     if text.startswith("组队艾特"):
         tid = 1 if "1" in text else 2
         t = get_team(tid)
@@ -175,7 +163,8 @@ async def handle(bot: Bot, event: GroupMessageEvent):
         lab = label(t) or f"第{tid}队"
         if not t["members"]:
             await bot.send(event, f"{lab} 暂时没人～"); return
-        ats = "".join(str(MessageSegment.mention_qq(q)) for q in t["members"])
+        # 艾特用 mention_qid（qq号字符串），更稳定
+        ats = "".join(str(MessageSegment.mention_qid(q)) for q in t["members"])
         diff = MAX_MEMBER - len(t["members"])
         if diff > 0:
             await bot.send(event, f"{lab}名单：\n{ats}\n(艾特完成 还差{diff}人满人)")
@@ -183,7 +172,6 @@ async def handle(bot: Bot, event: GroupMessageEvent):
             await bot.send(event, f"{lab}名单：\n{ats}")
         return
 
-    # 组队历史
     if text == "组队历史":
         hist = data.get("history", [])
         if not hist:
