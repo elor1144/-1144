@@ -6,6 +6,7 @@ from nonebot.adapters.qq import Adapter as QQAdapter
 nonebot.init(
     qq_botid=os.environ.get("QQ_BOTID"),
     qq_client_secret=os.environ.get("QQ_CLIENT_SECRET"),
+    driver="~httpx+fastapi",
 )
 
 driver = nonebot.get_driver()
