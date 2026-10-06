@@ -52,7 +52,8 @@ def label(t):
 
 @on_message(priority=1).handle()
 async def handle(bot: Bot, event: GroupMessageEvent):
-    text = event.get_message().extract_plain_text().strip()
+    # 容错：去掉首尾空格和常见标点（！!。.，,~～ 等）
+    text = event.get_message().extract_plain_text().strip().strip("！!。.，,~～ ")
     if not text:
         return
     uid = event.get_user_id()
