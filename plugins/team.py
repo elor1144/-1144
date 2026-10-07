@@ -47,11 +47,31 @@ def is_admin(event):
     uid = str(event.get_user_id())
     if uid in ADMIN_OPENIDS:
         return True
-    for attr in ("member", "author"):
-        role = getattr(getattr(event, attr, None), "role", None)
-        if role in ("owner", "admin"):
+    # 自动识别群主 / 群管理员（调试阶段先打印，不改行为）
+    for attr in ("member", "author", "sender", "operator"):
+        obj = getattr(event, attr, None)
+        role = getattr(obj, "role", None)
+        if role in ("owner", "admin", "administrator"):
             return True
+    if getattr(event, "role", None) in ("owner", "admin", "administrator"):
+        return True
     return False
+
+def debug_role(event):
+    # 把所有可能的角色字段打出来，方便确认 SDK 字段名
+    info = {}
+    info["user_id"] = str(event.get_user_id())
+    for attr in ("member", "author", "sender", "operator"):
+        obj = getattr(event, attr, None)
+        if obj is not None:
+            info[attr] = {
+                "role": getattr(obj, "role", None),
+                "permission": getattr(obj, "permission", None),
+                "type": getattr(obj, "type", None),
+            }
+    info["event.role"] = getattr(event, "role", None)
+    info["event.permission"] = getattr(event, "permission", None)
+    print("ROLE_DEBUG", json.dumps(info, ensure_ascii=False))
 
 def get_mentions(event):
     res = []
@@ -153,6 +173,7 @@ def guess_cmd(text):
     return best + num
 
 async def _handle(bot: Bot, event: Event):
+    debug_role(event)  # 调试用，确认后删掉这行
     text = get_text(event)
     if not text:
         return
@@ -413,10 +434,6 @@ async def _handle(bot: Bot, event: Event):
 @on_message(priority=1).handle()
 async def handle(bot: Bot, event: Event):
     try:
-        await _handle(bot, event)
-    except Exception as e:
-        print("[X-ERROR]", traceback.format_exc())
-        try:
-            await send_msgs(bot, event, "[error] 内部错误，已记录，请联系管理员")
-        except Exception:
-            pass
+       
+[ ](mqqapi://markdown/node?nodeType=waitMsg&nodeID=longMsgWaitFullText&state=&text=%E5%89%A9%E4%BD%99%E5%86%85%E5%AE%B9%E4%BB%8D%E5%9C%A8%E8%BE%93%E5%87%BA%E4%B8%AD%EF%BC%8C%E8%AF%B7%E8%80%90%E5%BF%83%E7%AD%89%E5%BE%85&index=&itemsPerRow=&itemsNum=)
+[ ](mqqapi://markdown/node?nodeType=delete&nodeID=longMsgWaitFullText&state=&text=&index=&itemsPerRow=&itemsNum=)
