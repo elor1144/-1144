@@ -161,7 +161,7 @@ async def handle(bot: Bot, event: Event):
             "💫【开队】丹丹组队1 / 丹丹组队2（管理员，开队即存档）\n"
             "💫【加入】发 1 玩家名 角色 加入队伍\n"
             "💫【退出】组队退出1 / 组队退出2（自己退）\n"
-            "💫【帮退】组队退出1 @某人 / 组队退出2 @某人（管理员）\n"
+            "💫【帮退】组队退出1 昵称（管理员，用昵称踢人）\n"
             "💫【结束】组队结束1 / 组队结束2（管理员）\n"
             "💫【结束all】组队结束all（需1、2队都开启，管理员）\n"
             "💫【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
@@ -236,22 +236,25 @@ async def handle(bot: Bot, event: Event):
     if only_keyword_no_num(text, "组队退出"):
         await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
 
-    if "组队退出" in text and get_mentions(event):
+    # 帮退：组队退出1 昵称（管理员，用昵称定位，不读@）
+    if text.startswith("组队退出") and not is_exact(text, "组队退出"):
         if not is_admin(event):
             await send_msgs(bot, event, "[error] 只有管理员才能帮别人退队哦～"); return
         tid = 1 if "1" in text else 2
-        targets = get_mentions(event)
         t = get_team(tid)
         if not t or not t["active"]:
             await send_msgs(bot, event, f"[error] 第{tid}队没开着呢～"); return
-        removed = [tg for tg in targets if tg in t["members"]]
-        for tg in removed:
-            t["members"].pop(tg, None)
+        name = text[len("组队退出"):].strip()
+        name = name[1:].strip() if name and name[0] in "12" else name
+        if not name:
+            await send_msgs(bot, event, "[error] 格式：组队退出1 昵称"); return
+        hit = [k for k, v in t["members"].items() if v.get("nick") == name]
+        if not hit:
+            await send_msgs(bot, event, f"[error] 没找到叫「{name}」的人在第{tid}队"); return
+        for k in hit:
+            t["members"].pop(k, None)
         save_data(data)
-        if removed:
-            await send_msgs(bot, event, f"⭐ 已帮 {len(removed)} 人从第{tid}队退出，当前 {len(t['members'])} 人")
-        else:
-            await send_msgs(bot, event, f"[error] 被@的人不在第{tid}队里哦～")
+        await send_msgs(bot, event, f"⭐ 已帮「{name}」从第{tid}队退出，当前 {len(t['members'])} 人")
         return
 
     if is_exact(text, "组队退出"):
