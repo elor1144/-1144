@@ -5,17 +5,15 @@ import json, os, asyncio, re, difflib
 BASE = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE, "team_data.json")
 MAX_MEMBER = 8
-ADMIN_OPENIDS = {
-    "8F33BB8A446515723B3EBACA4D5E6574",
-    "BE17FB9434A14FFED902CDAE49C7B606",
-    "FCE26E909EB5E50823B381543FD28CB0",
+ALLOWED_GROUPS = {
+    "E96253B3683DD2B9E4270027306D107D",
+    "02974B8091D2AF0865C73C36E4D22B5E",
 }
-ALLOWED_GROUP = ""
 
 GREET_WORDS = ["你好", "您好", "hi", "hello", "嗨", "在吗", "在么", "早", "早上好", "晚上好", "下午好"]
 
 CORE_CMDS = ["丹丹菜单", "丹丹组队", "组队退出", "组队结束", "组队结束all",
-             "组队备注", "组队计数", "组队艾特", "组队历史", "定时提醒", "星星保修", "删除历史all"]
+             "组队备注", "组队计数", "组队艾特", "组队历史", "定时提醒", "星星保修", "删除历史all", "调试角色"]
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -46,9 +44,30 @@ async def send_msgs(bot, event, text):
 
 def is_admin(event):
     gid = str(getattr(event, "group_id", "") or getattr(event, "guild_id", ""))
-    if ALLOWED_GROUP and gid and gid != ALLOWED_GROUP:
+    if ALLOWED_GROUPS and gid and gid not in ALLOWED_GROUPS:
         return False
-    return str(event.get_user_id()) in ADMIN_OPENIDS
+    role = None
+    for attr in ("member", "author", "sender", "operator"):
+        obj = getattr(event, attr, None)
+        if obj is not None:
+            role = getattr(obj, "role", None)
+            if role is not None:
+                break
+    if role is None:
+        role = getattr(event, "role", None)
+    if role is None:
+        return False
+    return str(role).lower() in ("owner", "admin", "administrator", "2", "3")
+
+async def _debug_role(bot, event):
+    info = {"user_id": str(event.get_user_id())}
+    for attr in ("member", "author", "sender", "operator"):
+        obj = getattr(event, attr, None)
+        if obj is not None:
+            info[attr] = {"role": getattr(obj, "role", None), "permission": getattr(obj, "permission", None), "type": getattr(obj, "type", None)}
+    info["event.role"] = getattr(event, "role", None)
+    info["event.permission"] = getattr(event, "permission", None)
+    await send_msgs(bot, event, "调试：" + json.dumps(info, ensure_ascii=False))
 
 def get_mentions(event):
     res = []
@@ -139,7 +158,7 @@ def guess_cmd(text):
     best = match[0]
     if best == "组队结束all":
         return "组队结束all"
-    if best in ("组队备注", "定时提醒", "星星保修", "删除历史all"):
+    if best in ("组队备注", "定时提醒", "星星保修", "删除历史all", "调试角色"):
         return best
     return best + num
 
@@ -152,6 +171,10 @@ async def handle(bot: Bot, event: Event):
 
     if is_exact(text, "调试群ID"):
         await send_msgs(bot, event, "群ID=" + str(getattr(event, "group_id", "") or getattr(event, "guild_id", "") or "无"))
+        return
+
+    if is_exact(text, "调试角色"):
+        await _debug_role(bot, event)
         return
 
     if any(g in text.lower() for g in GREET_WORDS):
