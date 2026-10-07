@@ -1,6 +1,6 @@
 from nonebot import on_message
 from nonebot.adapters.qq import Bot, MessageSegment, Event
-import json, os, asyncio, re, difflib, traceback
+import json, os, asyncio, re, difflib
 
 BASE = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE, "team_data.json")
@@ -10,6 +10,7 @@ ADMIN_OPENIDS = {
     "BE17FB9434A14FFED902CDAE49C7B606",
     "FCE26E909EB5E50823B381543FD28CB0",
 }
+ALLOWED_GROUP = ""
 
 GREET_WORDS = ["你好", "您好", "hi", "hello", "嗨", "在吗", "在么", "早", "早上好", "晚上好", "下午好"]
 
@@ -44,14 +45,10 @@ async def send_msgs(bot, event, text):
                 pass
 
 def is_admin(event):
-    uid = str(event.get_user_id())
-    if uid in ADMIN_OPENIDS:
-        return True
-    for attr in ("member", "author"):
-        role = getattr(getattr(event, attr, None), "role", None)
-        if role in ("owner", "admin"):
-            return True
-    return False
+    gid = str(getattr(event, "group_id", "") or getattr(event, "guild_id", ""))
+    if ALLOWED_GROUP and gid and gid != ALLOWED_GROUP:
+        return False
+    return str(event.get_user_id()) in ADMIN_OPENIDS
 
 def get_mentions(event):
     res = []
@@ -64,15 +61,12 @@ def get_mentions(event):
 
 def get_text(event):
     out = ""
-    try:
-        for seg in event.get_message():
-            t = seg.type
-            if t in ("text", "plain"):
-                out += seg.data.get("text", "")
-            elif t == "mention":
-                out += " @"
-    except Exception:
-        pass
+    for seg in event.get_message():
+        t = seg.type
+        if t in ("text", "plain"):
+            out += seg.data.get("text", "")
+        elif t == "mention":
+            out += " @"
     return out.strip().strip("！!。.，,~～ ").strip()
 
 def get_team(tid):
@@ -81,9 +75,6 @@ def get_team(tid):
 def team_open(tid):
     t = get_team(tid)
     return bool(t and t.get("active"))
-
-def team2_usable():
-    return team_open(1)
 
 def new_team(tid):
     data["teams"][str(tid)] = {"members": {}, "remark": "", "active": True, "name": ""}
@@ -152,11 +143,16 @@ def guess_cmd(text):
         return best
     return best + num
 
-async def _handle(bot: Bot, event: Event):
+@on_message(priority=1).handle()
+async def handle(bot: Bot, event: Event):
     text = get_text(event)
     if not text:
         return
     uid = str(event.get_user_id())
+
+    if is_exact(text, "调试群ID"):
+        await send_msgs(bot, event, "群ID=" + str(getattr(event, "group_id", "") or getattr(event, "guild_id", "") or "无"))
+        return
 
     if any(g in text.lower() for g in GREET_WORDS):
         await send_msgs(bot, event, "你好呀⭐")
@@ -187,11 +183,11 @@ async def _handle(bot: Bot, event: Event):
         if not is_admin(event):
             await send_msgs(bot, event, "[error] 只有管理员才能开队哦～"); return
         tid = 1 if "1" in text else 2
-        if tid == 2 and not team_open(1):
-            await send_msgs(bot, event, "[error]请先开启第1队！"); return
         t = get_team(tid)
         if t and t["active"]:
             await send_msgs(bot, event, f"[error] 第{tid}队已经在开了～"); return
+        if tid == 2 and not team_open(1):
+            await send_msgs(bot, event, "[error]请先开启第1队！"); return
         new_team(tid)
         archive_team(tid)
         await send_msgs(bot, event, f"⭐ 第{tid}队已开启，最多两队并存～\n想加入的直接发「1 你的玩家名 你的角色」即可")
@@ -216,8 +212,6 @@ async def _handle(bot: Bot, event: Event):
     m = re.search(r"\b([12])\s+(\S+)\s+(\S+)$", text)
     if m:
         tid = int(m.group(1))
-        if tid == 2 and not team2_usable():
-            return
         if not team_open(tid):
             return
         nick = m.group(2); role = m.group(3)
@@ -238,8 +232,6 @@ async def _handle(bot: Bot, event: Event):
 
     if re.fullmatch(r"[12]\s*[！!。．.，,~～ ]*", text):
         tid = int(text.strip()[0])
-        if tid == 2 and not team2_usable():
-            return
         if not team_open(tid):
             return
         await send_msgs(bot, event, "[error] 格式不对～ 请按：1 你的玩家名 你的角色（例：1 呃呃 彩球）"); return
@@ -251,8 +243,6 @@ async def _handle(bot: Bot, event: Event):
         if not is_admin(event):
             await send_msgs(bot, event, "[error] 只有管理员才能帮别人退队哦～"); return
         tid = 1 if "1" in text else 2
-        if tid == 2 and not team2_usable():
-            await send_msgs(bot, event, "[error] 第2队还没开启（请先开第1队）～"); return
         targets = get_mentions(event)
         t = get_team(tid)
         if not t or not t["active"]:
@@ -269,8 +259,6 @@ async def _handle(bot: Bot, event: Event):
 
     if is_exact(text, "组队退出"):
         tid = 1 if "1" in text else 2
-        if tid == 2 and not team2_usable():
-            await send_msgs(bot, event, "[error] 第2队还没开启（请先开第1队）～"); return
         t = get_team(tid)
         if not t or not t["active"]:
             await send_msgs(bot, event, f"[error] 第{tid}队没开着呢～"); return
@@ -288,8 +276,6 @@ async def _handle(bot: Bot, event: Event):
         if not is_admin(event):
             await send_msgs(bot, event, "[error] 只有管理员才能结束组队～"); return
         tid = 1 if "1" in text else 2
-        if tid == 2 and not team2_usable():
-            await send_msgs(bot, event, "[error] 第2队还没开启（请先开第1队）～"); return
         t = get_team(tid)
         if not t:
             await send_msgs(bot, event, f"[error] 第{tid}队本来就没开～"); return
@@ -332,8 +318,6 @@ async def _handle(bot: Bot, event: Event):
         if not is_admin(event):
             await send_msgs(bot, event, "[error] 只有管理员才能改备注～"); return
         tid = 1 if "1" in text else 2
-        if tid == 2 and not team2_usable():
-            await send_msgs(bot, event, "[error] 第2队还没开启（请先开第1队）～"); return
         name = text[len("组队备注"):].strip()
         name = name[1:].strip() if name and name[0] in "12" else name
         t = get_team(tid)
@@ -349,8 +333,6 @@ async def _handle(bot: Bot, event: Event):
 
     if is_exact(text, "组队计数"):
         tid = 1 if "1" in text else 2
-        if tid == 2 and not team2_usable():
-            await send_msgs(bot, event, "[error] 第2队还没开启（请先开第1队）～"); return
         t = get_team(tid)
         if not t or not t["active"]:
             await send_msgs(bot, event, f"[error] 第{tid}队没开着呢～"); return
@@ -369,8 +351,6 @@ async def _handle(bot: Bot, event: Event):
 
     if is_exact(text, "组队艾特"):
         tid = 1 if "1" in text else 2
-        if tid == 2 and not team2_usable():
-            await send_msgs(bot, event, "[error] 第2队还没开启（请先开第1队）～"); return
         t = get_team(tid)
         if not t or not t["active"]:
             await send_msgs(bot, event, f"[error] 第{tid}队没开着呢～"); return
@@ -409,14 +389,3 @@ async def _handle(bot: Bot, event: Event):
     guessed = guess_cmd(text)
     if guessed:
         await send_msgs(bot, event, f"[提示]猜你想发！({guessed})"); return
-
-@on_message(priority=1).handle()
-async def handle(bot: Bot, event: Event):
-    try:
-        await _handle(bot, event)
-    except Exception as e:
-        print("[X-ERROR]", traceback.format_exc())
-        try:
-            await send_msgs(bot, event, "[error] 内部错误，已记录，请联系管理员")
-        except Exception:
-            pass
