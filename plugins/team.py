@@ -5,11 +5,16 @@ import json, os, asyncio, re, difflib, traceback
 BASE = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE, "team_data.json")
 MAX_MEMBER = 8
+ADMIN_OPENIDS = {
+    "8F33BB8A446515723B3EBACA4D5E6574",
+    "BE17FB9434A14FFED902CDAE49C7B606",
+    "FCE26E909EB5E50823B381543FD28CB0",
+}
 
 GREET_WORDS = ["你好", "您好", "hi", "hello", "嗨", "在吗", "在么", "早", "早上好", "晚上好", "下午好"]
 
 CORE_CMDS = ["丹丹菜单", "丹丹组队", "组队退出", "组队结束", "组队结束all",
-             "组队备注", "组队计数", "组队艾特", "组队历史", "定时提醒", "星星保修", "删除历史all"]
+             "组队备注", "组队计数", "组队艾特", "组队历史", "定时提醒", "星星保修", "删除历史all", "调试角色"]
 
 
 def load_data():
@@ -44,14 +49,32 @@ async def send_msgs(bot, event, text):
 
 
 def is_admin(event):
+    uid = str(event.get_user_id())
+    if uid in ADMIN_OPENIDS:
+        return True
     for attr in ("member", "author", "sender", "operator"):
         obj = getattr(event, attr, None)
         role = getattr(obj, "role", None)
-        if role in ("owner", "admin", "administrator", 2, 3):
+        if role in ("owner", "admin", "administrator", 2, 3, "2", "3"):
             return True
-    if getattr(event, "role", None) in ("owner", "admin", "administrator", 2, 3):
+    if getattr(event, "role", None) in ("owner", "admin", "administrator", 2, 3, "2", "3"):
         return True
     return False
+
+
+async def _debug_role(bot, event):
+    info = {"user_id": str(event.get_user_id())}
+    for attr in ("member", "author", "sender", "operator"):
+        obj = getattr(event, attr, None)
+        if obj is not None:
+            info[attr] = {
+                "role": getattr(obj, "role", None),
+                "permission": getattr(obj, "permission", None),
+                "type": getattr(obj, "type", None),
+            }
+    info["event.role"] = getattr(event, "role", None)
+    info["event.permission"] = getattr(event, "permission", None)
+    await send_msgs(bot, event, "调试：" + json.dumps(info, ensure_ascii=False))
 
 
 def get_mentions(event):
@@ -162,7 +185,7 @@ def guess_cmd(text):
     best = match[0]
     if best == "组队结束all":
         return "组队结束all"
-    if best in ("组队备注", "定时提醒", "星星保修", "删除历史all"):
+    if best in ("组队备注", "定时提醒", "星星保修", "删除历史all", "调试角色"):
         return best
     return best + num
 
@@ -175,6 +198,10 @@ async def _handle(bot: Bot, event: Event):
 
     if any(g in text.lower() for g in GREET_WORDS):
         await send_msgs(bot, event, "你好呀⭐")
+        return
+
+    if is_exact(text, "调试角色"):
+        await _debug_role(bot, event)
         return
 
     if is_exact(text, "丹丹菜单"):
@@ -454,32 +481,6 @@ async def _handle(bot: Bot, event: Event):
             await send_msgs(bot, event, "📜 还没有任何组队记录哦～")
             return
         lines = ["📜 最近组队记录（含备注名）："]
-        for i, h in enumerate(hist[-10:], 1):
-            tid = h.get("team_id")
-            now_tag = " [now]" if team_open(tid) else ""
-            name = h.get("remark") or h.get("name") or (f"第{tid}队")
-            cnt = len(h.get("members", []))
-            lines.append(f"{i}. {name}（{cnt}人）{now_tag}")
-        await send_msgs(bot, event, "\n".join(lines))
-        return
 
-    if text.startswith("组队"):
-        await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)")
-        return
-
-    guessed = guess_cmd(text)
-    if guessed:
-        await send_msgs(bot, event, f"[提示]猜你想发！({guessed})")
-        return
-
-
-@on_message(priority=1).handle()
-async def handle(bot: Bot, event: Event):
-    try:
-        await _handle(bot, event)
-    except Exception as e:
-        print("[X-ERROR]", traceback.format_exc())
-        try:
-            await send_msgs(bot, event, "[error] 内部错误，已记录，请联系管理员")
-        except Exception:
-            pass
+[ ](mqqapi://markdown/node?nodeType=waitMsg&nodeID=longMsgWaitFullText&state=&text=%E5%89%A9%E4%BD%99%E5%86%85%E5%AE%B9%E4%BB%8D%E5%9C%A8%E8%BE%93%E5%87%BA%E4%B8%AD%EF%BC%8C%E8%AF%B7%E8%80%90%E5%BF%83%E7%AD%89%E5%BE%85&index=&itemsPerRow=&itemsNum=)
+[ ](mqqapi://markdown/node?nodeType=delete&nodeID=longMsgWaitFullText&state=&text=&index=&itemsPerRow=&itemsNum=)
