@@ -172,10 +172,7 @@ def guess_cmd(text):
         return "组队结束all"
     if best in ("组队备注", "定时提醒", "星星保修", "删除历史all"):
         return best
-    return best + num
-
-
-async def _handle(bot: Bot, event: Event):
+    return best + numasync def _handle(bot: Bot, event: Event):
     text = get_text(event)
     if not text:
         return
@@ -457,6 +454,37 @@ async def _handle(bot: Bot, event: Event):
         return
 
     if is_exact(text, "组队历史"):
+        hist = data.get("history", [])
+        if not hist:
+            await send_msgs(bot, event, "📜 还没有任何组队记录哦～")
+            return
+        lines = ["📜 最近组队记录（含备注名）："]
+        for i, h in enumerate(hist[-10:], 1):
+            tid = h.get("team_id")
+            now_tag = " [now]" if team_open(tid) else ""
+            name = h.get("remark") or h.get("name") or (f"第{tid}队")
+            cnt = len(h.get("members", []))
+            lines.append(f"{i}. {name}（{cnt}人）{now_tag}")
+        await send_msgs(bot, event, "\n".join(lines))
+        return
 
-[ ](mqqapi://markdown/node?nodeType=waitMsg&nodeID=longMsgWaitFullText&state=&text=%E5%89%A9%E4%BD%99%E5%86%85%E5%AE%B9%E4%BB%8D%E5%9C%A8%E8%BE%93%E5%87%BA%E4%B8%AD%EF%BC%8C%E8%AF%B7%E8%80%90%E5%BF%83%E7%AD%89%E5%BE%85&index=&itemsPerRow=&itemsNum=)
-[ ](mqqapi://markdown/node?nodeType=delete&nodeID=longMsgWaitFullText&state=&text=&index=&itemsPerRow=&itemsNum=)
+    if text.startswith("组队"):
+        await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)")
+        return
+
+    guessed = guess_cmd(text)
+    if guessed:
+        await send_msgs(bot, event, f"[提示]猜你想发！({guessed})")
+        return
+
+
+@on_message(priority=1).handle()
+async def handle(bot: Bot, event: Event):
+    try:
+        await _handle(bot, event)
+    except Exception as e:
+        print("[X-ERROR]", traceback.format_exc())
+        try:
+            await send_msgs(bot, event, "[error] 内部错误，已记录，请联系管理员")
+        except Exception:
+            pass
