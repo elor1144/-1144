@@ -122,6 +122,9 @@ def only_keyword_no_num(text, keyword):
 
 def guess_cmd(text):
     s = text.strip().strip("！!。．.，,~～ ")
+    # 超过5个字不可能是单独指令，不猜（防闲聊夹带误触发）
+    if len(s) > 5:
+        return None
     num = ""
     m = re.fullmatch(r"(.*?)\s*([12])\s*$", s)
     if m:
@@ -130,7 +133,7 @@ def guess_cmd(text):
         base = re.sub(r"a\s*l+\s*$", "", s, flags=re.I).strip()
         if difflib.SequenceMatcher(None, base, "组队结束").ratio() > 0.5 or base == "":
             return "组队结束all"
-    match = difflib.get_close_matches(s, CORE_CMDS, n=1, cutoff=0.55)
+    match = difflib.get_close_matches(s, CORE_CMDS, n=1, cutoff=0.85)
     if not match:
         return None
     best = match[0]
