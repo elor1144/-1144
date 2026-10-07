@@ -112,7 +112,7 @@ def parse_duration(s):
     return None
 
 def at_seg(openid, nick=""):
-    return str(MessageSegment.mention_user(user_id=openid))
+    return f"@{nick}" if nick else str(openid)
 
 def is_exact(text, keyword):
     return re.fullmatch(rf"{re.escape(keyword)}\s*[12]?\s*[！!。．.，,~～ ]*", text) is not None
@@ -357,10 +357,9 @@ async def handle(bot: Bot, event: Event):
         await send_msgs(bot, event, f"第{tid}队已有{len(members)}人，正在尝试艾特群内队伍成员，请稍后…")
         lines = ["群内队伍成员："]
         for v in members:
-            at = str(MessageSegment.mention_user(user_id=v["openid"]))
             nm = v.get("nick") or ""
             rl = v.get("role") or ""
-            lines.append(f"{at} {nm}（角色：{rl}）")
+            lines.append(f"@{nm}（角色：{rl}）")
         await send_msgs(bot, event, "\n".join(lines))
         return
 
