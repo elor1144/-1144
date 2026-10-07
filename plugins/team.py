@@ -112,13 +112,7 @@ def parse_duration(s):
     return None
 
 def at_seg(openid, nick=""):
-    try:
-        return str(MessageSegment.mention_user(user_id=openid))
-    except Exception:
-        try:
-            return str(MessageSegment.mention_qid(openid))
-        except Exception:
-            return f"@{nick}" if nick else str(openid)
+    return str(MessageSegment.mention_user(user_id=openid))
 
 def is_exact(text, keyword):
     return re.fullmatch(rf"{re.escape(keyword)}\s*[12]?\s*[！!。．.，,~～ ]*", text) is not None
@@ -173,7 +167,7 @@ async def handle(bot: Bot, event: Event):
             "💫【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
             "💫【定时】定时提醒 10分钟 内容（管理员）\n"
             "💫【计数】组队计数1 / 组队计数2\n"
-            "💫【艾特】组队艾特1 / 组队艾特2\n"
+            "💫【艾特】组队艾特 1 / 组队艾特 2\n"
             "💫【保修】星星保修（修复已知问题）\n"
             "💫【删历史】删除历史all（清空记录，管理员）\n"
             "💫【历史】组队历史\n━━━━━━━━\n满8人自动艾特")
@@ -352,25 +346,22 @@ async def handle(bot: Bot, event: Event):
     if only_keyword_no_num(text, "组队艾特"):
         await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
 
-    if is_exact(text, "组队艾特"):
+    if text.startswith("组队艾特"):
         tid = 1 if "1" in text else 2
         t = get_team(tid)
         if not t or not t["active"]:
             await send_msgs(bot, event, f"[error] 第{tid}队没开着呢～"); return
-        lab = label(t) or f"第{tid}队"
-        if not t["members"]:
-            await send_msgs(bot, event, f"[error] {lab} 暂时没人～"); return
-        lines = [f"{lab}名单（已加入 {len(t['members'])} 人）："]
-        for v in t["members"].values():
-            at = at_seg(v["openid"], v.get("nick",""))
+        members = list(t["members"].values())
+        if not members:
+            await send_msgs(bot, event, f"[error] 第{tid}队暂时没人～"); return
+        await send_msgs(bot, event, f"第{tid}队已有{len(members)}人，正在尝试艾特群内队伍成员，请稍后…")
+        lines = ["群内队伍成员："]
+        for v in members:
+            at = str(MessageSegment.mention_user(user_id=v["openid"]))
             nm = v.get("nick") or ""
             rl = v.get("role") or ""
             lines.append(f"{at} {nm}（角色：{rl}）")
-        diff = MAX_MEMBER - len(t["members"])
-        msg = "\n".join(lines)
-        if diff > 0:
-            msg += f"\n(艾特完成 还差{diff}人满人)"
-        await send_msgs(bot, event, msg)
+        await send_msgs(bot, event, "\n".join(lines))
         return
 
     if is_exact(text, "组队历史"):
