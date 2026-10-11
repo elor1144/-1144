@@ -15,10 +15,8 @@ ALLOWED_GROUPS = {
     "02974B8091D2AF0865C73C36E4D22B5E",
 }
 
-GREET_WORDS = ["你好", "您好", "hi", "hello", "嗨", "在吗", "在么", "早", "早上好", "晚上好", "下午好"]
-
 CORE_CMDS = ["丹丹菜单", "丹丹组队", "组队退出", "组队结束", "组队结束all",
-             "组队备注", "组队计数", "组队艾特", "组队历史", "定时提醒", "星星保修", "删除历史all"]
+             "组队备注", "组队计数", "组队艾特", "组队历史", "定时提醒", "星星保修", "删除历史all", "组队回档"]
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -122,7 +120,6 @@ def only_keyword_no_num(text, keyword):
 
 def guess_cmd(text):
     s = text.strip().strip("！!。．.，,~～ ")
-    # 超过5个字不可能是单独指令，不猜（防闲聊夹带误触发）
     if len(s) > 5:
         return None
     num = ""
@@ -139,7 +136,7 @@ def guess_cmd(text):
     best = match[0]
     if best == "组队结束all":
         return "组队结束all"
-    if best in ("组队备注", "定时提醒", "星星保修", "删除历史all"):
+    if best in ("组队备注", "定时提醒", "星星保修", "删除历史all", "组队回档"):
         return best
     return best + num
 
@@ -154,7 +151,7 @@ async def handle(bot: Bot, event: Event):
         await send_msgs(bot, event, "群ID=" + str(getattr(event, "group_id", "") or getattr(event, "guild_id", "") or "无"))
         return
 
-    if any(g in text.lower() for g in GREET_WORDS):
+    if is_exact(text, "你好") or is_exact(text, "您好") or is_exact(text, "hi") or is_exact(text, "hello") or is_exact(text, "嗨") or is_exact(text, "在吗") or is_exact(text, "在么") or is_exact(text, "早") or is_exact(text, "早上好") or is_exact(text, "晚上好") or is_exact(text, "下午好"):
         await send_msgs(bot, event, "你好呀⭐")
         return
 
@@ -171,6 +168,7 @@ async def handle(bot: Bot, event: Event):
             "💫【定时】定时提醒 10分钟 内容（管理员）\n"
             "💫【计数】组队计数1 / 组队计数2\n"
             "💫【艾特】组队艾特 1 / 组队艾特 2\n"
+            "💫【回档】组队回档 N（看历史序号，管理员恢复队伍）\n"
             "💫【保修】星星保修（修复已知问题）\n"
             "💫【删历史】删除历史all（清空记录，管理员）\n"
             "💫【历史】组队历史\n━━━━━━━━\n满8人自动艾特")
@@ -381,6 +379,33 @@ async def handle(bot: Bot, event: Event):
             cnt = len(h.get("members", []))
             lines.append(f"{i}. {name}（{cnt}人）{now_tag}")
         await send_msgs(bot, event, "\n".join(lines)); return
+
+    # 回档：组队回档 N（管理员，基于历史序号恢复队伍）
+    if text.startswith("组队回档"):
+        if not is_admin(event):
+            await send_msgs(bot, event, "[error] 只有管理员才能回档哦～"); return
+        arg = text[len("组队回档"):].strip()
+        if not arg.isdigit():
+            await send_msgs(bot, event, "[error] 格式：组队回档 N（N是历史序号）"); return
+        idx = int(arg)
+        hist = data.get("history", [])
+        if not hist:
+            await send_msgs(bot, event, "[error] 还没有任何历史记录～"); return
+        if idx < 1 or idx > len(hist):
+            await send_msgs(bot, event, f"[error] 序号超出范围，当前历史共 {len(hist)} 条"); return
+        snap = hist[-len(hist) + idx - 1]
+        tid = int(snap.get("team_id"))
+        if team_open(tid):
+            await send_msgs(bot, event, f"[error] 第{tid}队正在开启中，请先结束再回档～"); return
+        restored = {"members": {}, "remark": snap.get("remark", ""), "name": snap.get("name", ""), "active": True}
+        for mem in snap.get("members", []):
+            restored["members"][mem.get("openid")] = {"openid": mem.get("openid"), "nick": mem.get("nick", ""), "role": mem.get("role", "")}
+        data["teams"][str(tid)] = restored
+        save_data(data)
+        cnt = len(restored["members"])
+        name = label(restored) or f"第{tid}队"
+        await send_msgs(bot, event, f"⭐ 已回档「{name}」到第{tid}队，当前 {cnt} 人～")
+        return
 
     if text.startswith("组队"):
         await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
