@@ -27,6 +27,11 @@ ALLOWED_GROUPS = {
 CORE_CMDS = ["丹丹菜单", "丹丹组队", "组队退出", "组队结束", "组队结束all",
              "组队备注", "组队计数", "组队艾特", "组队历史", "定时提醒", "星星保修", "删除历史all", "组队回档"]
 
+# 群内才允许加入（防止非白名单群串数据）
+def join_allowed(event):
+    gid = str(getattr(event, "group_id", "") or getattr(event, "guild_id", "") or "")
+    return (not ALLOWED_GROUPS) or (gid in ALLOWED_GROUPS)
+
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
@@ -212,6 +217,8 @@ async def handle(bot: Bot, event: Event):
 
     m = re.fullmatch(r"([12])\s+(\S+)\s+(\S+)", text)
     if m:
+        if not join_allowed(event):
+            return
         tid = int(m.group(1))
         if not team_open(tid):
             return
