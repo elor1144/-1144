@@ -189,8 +189,6 @@ async def handle(bot: Bot, event: Event):
         t = get_team(tid)
         if t and t["active"]:
             await send_msgs(bot, event, f"[error] 第{tid}队已经在开了～"); return
-        if tid == 2 and not team_open(1):
-            await send_msgs(bot, event, "[error]请先开启第1队！"); return
         new_team(tid)
         archive_team(tid)
         await send_msgs(bot, event, f"⭐ 第{tid}队已开启，最多两队并存～\n想加入的直接发「{tid} 你的玩家名 你的角色」即可")
