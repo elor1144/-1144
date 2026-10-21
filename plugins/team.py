@@ -2,6 +2,15 @@ from nonebot import on_message
 from nonebot.adapters.qq import Bot, MessageSegment, Event
 import json, os, asyncio, re, difflib
 
+try:
+    from opencc import OpenCC
+    _cc = OpenCC('t2s')
+    def to_simple(s):
+        return _cc.convert(s)
+except Exception:
+    def to_simple(s):
+        return s
+
 BASE = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE, "team_data.json")
 MAX_MEMBER = 8
@@ -68,7 +77,7 @@ def get_text(event):
             out += seg.data.get("text", "")
         elif t == "mention":
             out += " @"
-    return out.strip().strip("！!。.，,~～ ").strip()
+    return to_simple(out.strip().strip("！!。.，,~～ ").strip())
 
 def get_team(tid):
     return data["teams"].get(str(tid))
@@ -78,7 +87,7 @@ def team_open(tid):
     return bool(t and t.get("active"))
 
 def new_team(tid):
-    data["teams"][str(tid)] = {"members": {}, "remark": "", "active": True, "name": ""}
+    data["teams"][str(tid)] = {"members": {}, "remark": "", "active": True, "name": "", "full": False}
     save_data(data)
 
 def archive_team(tid):
@@ -86,7 +95,7 @@ def archive_team(tid):
     if not t:
         return
     data.setdefault("history", [])
-    snap = {"team_id": tid, "remark": t.get("remark",""), "name": t.get("name",""),
+    snap = {"team_id": tid, "remark": t.get("remark",""), "name": t.get("name",""), "full": t.get("full", False),
             "members": [ {"openid": k, **v} for k, v in t["members"].items() ]}
     data["history"].append(snap)
     if len(data["history"]) > 50:
@@ -151,15 +160,11 @@ async def handle(bot: Bot, event: Event):
         await send_msgs(bot, event, "群ID=" + str(getattr(event, "group_id", "") or getattr(event, "guild_id", "") or "无"))
         return
 
-    if is_exact(text, "你好") or is_exact(text, "您好") or is_exact(text, "hi") or is_exact(text, "hello") or is_exact(text, "嗨") or is_exact(text, "在吗") or is_exact(text, "在么") or is_exact(text, "早") or is_exact(text, "早上好") or is_exact(text, "晚上好") or is_exact(text, "下午好"):
-        await send_msgs(bot, event, "你好呀⭐")
-        return
-
     if is_exact(text, "丹丹菜单"):
         await send_msgs(bot, event,
             "⭐ 组队助手 菜单\n━━━━━━━━\n"
             "💫【开队】丹丹组队1 / 丹丹组队2（管理员，开队即存档）\n"
-            "💫【加入】发 1 玩家名 角色 加入队伍\n"
+            "💫【加入】发 1/2 玩家名 角色 加入对应队伍\n"
             "💫【退出】组队退出1 / 组队退出2（自己退）\n"
             "💫【帮退】组队退出1 昵称（管理员，用昵称踢人）\n"
             "💫【结束】组队结束1 / 组队结束2（管理员）\n"
@@ -188,7 +193,7 @@ async def handle(bot: Bot, event: Event):
             await send_msgs(bot, event, "[error]请先开启第1队！"); return
         new_team(tid)
         archive_team(tid)
-        await send_msgs(bot, event, f"⭐ 第{tid}队已开启，最多两队并存～\n想加入的直接发「1 你的玩家名 你的角色」即可")
+        await send_msgs(bot, event, f"⭐ 第{tid}队已开启，最多两队并存～\n想加入的直接发「{tid} 你的玩家名 你的角色」即可")
         return
 
     if text.startswith("定时提醒"):
@@ -207,13 +212,15 @@ async def handle(bot: Bot, event: Event):
         await send_msgs(bot, event, f"⏰ 提醒：{msg}")
         return
 
-    m = re.search(r"\b([12])\s+(\S+)\s+(\S+)$", text)
+    m = re.fullmatch(r"([12])\s+(\S+)\s+(\S+)", text)
     if m:
         tid = int(m.group(1))
         if not team_open(tid):
             return
-        nick = m.group(2); role = m.group(3)
         t = get_team(tid)
+        if t.get("full"):
+            return
+        nick = m.group(2); role = m.group(3)
         if uid in t["members"]:
             await send_msgs(bot, event, f"[error] 你已经在本队啦，当前 {len(t['members'])} 人"); return
         t["members"][uid] = {"openid": uid, "nick": nick, "role": role}
@@ -221,18 +228,15 @@ async def handle(bot: Bot, event: Event):
         cnt = len(t["members"])
         shown = f"{nick}（角色：{role}）"
         if cnt >= MAX_MEMBER:
-            ats = "".join(at_seg(v["openid"], v.get("nick","")) for v in t["members"].values())
-            archive_team(tid)
-            await send_msgs(bot, event, f'⭐ 第{tid}队："{(label(t) or "第"+str(tid)+"队")}"\n已满员！\n{ats}')
+            t["full"] = True
+            save_data(data)
+            await send_msgs(bot, event, f"已满员！后续加入不计入")
         else:
             await send_msgs(bot, event, f"⭐ 加入成功！当前人数{cnt}人\n名称：{shown}")
         return
 
     if re.fullmatch(r"[12]\s*[！!。．.，,~～ ]*", text):
-        tid = int(text.strip()[0])
-        if not team_open(tid):
-            return
-        await send_msgs(bot, event, "[error] 格式不对～ 请按：1 你的玩家名 你的角色（例：1 呃呃 彩球）"); return
+        return
 
     if only_keyword_no_num(text, "组队退出"):
         await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
@@ -254,6 +258,8 @@ async def handle(bot: Bot, event: Event):
             await send_msgs(bot, event, f"[error] 没找到叫「{name}」的人在第{tid}队"); return
         for k in hit:
             t["members"].pop(k, None)
+        if t.get("full") and len(t["members"]) < MAX_MEMBER:
+            t["full"] = False
         save_data(data)
         await send_msgs(bot, event, f"⭐ 已帮「{name}」从第{tid}队退出，当前 {len(t['members'])} 人")
         return
@@ -264,7 +270,10 @@ async def handle(bot: Bot, event: Event):
         if not t or not t["active"]:
             await send_msgs(bot, event, f"[error] 第{tid}队没开着呢～"); return
         if uid in t["members"]:
-            t["members"].pop(uid, None); save_data(data)
+            t["members"].pop(uid, None)
+            if t.get("full") and len(t["members"]) < MAX_MEMBER:
+                t["full"] = False
+            save_data(data)
             await send_msgs(bot, event, f"⭐ 退出成功！第{tid}队当前人数{len(t['members'])}人")
         else:
             await send_msgs(bot, event, "[error] 你不在本队里哦～")
@@ -397,7 +406,8 @@ async def handle(bot: Bot, event: Event):
         tid = int(snap.get("team_id"))
         if team_open(tid):
             await send_msgs(bot, event, f"[error] 第{tid}队正在开启中，请先结束再回档～"); return
-        restored = {"members": {}, "remark": snap.get("remark", ""), "name": snap.get("name", ""), "active": True}
+        restored = {"members": {}, "remark": snap.get("remark", ""), "name": snap.get("name", ""),
+                    "active": True, "full": snap.get("full", False)}
         for mem in snap.get("members", []):
             restored["members"][mem.get("openid")] = {"openid": mem.get("openid"), "nick": mem.get("nick", ""), "role": mem.get("role", "")}
         data["teams"][str(tid)] = restored
