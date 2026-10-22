@@ -1,6 +1,5 @@
 from nonebot import on_message
 from nonebot.adapters.qq import Bot, MessageSegment, Event
-from nonebot.adapters.qq import GroupMemberIncrease
 import json, os, asyncio, re, difflib
 
 try:
@@ -155,14 +154,6 @@ def guess_cmd(text):
         return best
     return best + num
 
-# ===== 入群欢迎 =====
-@Bot.on_event(GroupMemberIncrease)
-async def welcome_new_member(bot: Bot, event: GroupMemberIncrease):
-    gid = str(getattr(event, "group_id", "") or getattr(event, "guild_id", "") or "")
-    if ALLOWED_GROUPS and gid and gid not in ALLOWED_GROUPS:
-        return
-    await send_msgs(bot, event, "欢迎新星 仔细阅读群公告⭐")
-
 @on_message(priority=1).handle()
 async def handle(bot: Bot, event: Event):
     text = get_text(event)
@@ -244,7 +235,7 @@ async def handle(bot: Bot, event: Event):
         if cnt >= MAX_MEMBER:
             t["full"] = True
             save_data(data)
-            await send_msgs(bot, event, f"已满员！后续加入不计入")
+            await send_msgs(bot, event, f"第{tid}队已满员！后续加入不计入")
         else:
             await send_msgs(bot, event, f"⭐ 加入成功！当前人数{cnt}人\n名称：{shown}")
         return
