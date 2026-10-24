@@ -1,6 +1,7 @@
-from nonebot import on_message
+from nonebot import on_message, on_startup
 from nonebot.adapters.qq import Bot, MessageSegment, Event
-import json, os, asyncio, re, difflib
+import nonebot
+import json, os, asyncio, re, difflib, time
 
 try:
     from opencc import OpenCC
@@ -25,9 +26,8 @@ ALLOWED_GROUPS = {
 }
 
 CORE_CMDS = ["丹丹菜单", "丹丹组队", "组队退出", "组队结束", "组队结束all",
-             "组队备注", "组队计数", "组队艾特", "组队历史", "定时提醒", "星星保修", "删除历史all", "组队回档"]
+             "组队备注", "组队计数", "组队历史", "定时提醒", "星星保修", "删除历史all", "组队回档"]
 
-# 群内才允许加入（防止非白名单群串数据）
 def join_allowed(event):
     gid = str(getattr(event, "group_id", "") or getattr(event, "guild_id", "") or "")
     return (not ALLOWED_GROUPS) or (gid in ALLOWED_GROUPS)
@@ -36,10 +36,15 @@ def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                d = json.load(f)
         except Exception:
-            pass
-    return {"teams": {}, "history": []}
+            d = {}
+    else:
+        d = {}
+    d.setdefault("teams", {})
+    d.setdefault("history", [])
+    d.setdefault("reminders", [])
+    return d
 
 def save_data(d):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
@@ -111,16 +116,18 @@ def label(t):
     return t.get("remark") or t.get("name") or ""
 
 def parse_duration(s):
-    m = re.match(r"^(\d+)\s*(分钟|分|小时|时|秒)$", s)
+    m = re.match(r"^(\d+\.?\d*)\s*(分钟|分|小时|时|秒|天|日)$", s)
     if not m:
         return None
-    n = int(m.group(1)); unit = m.group(2)
+    n = float(m.group(1)); unit = m.group(2)
     if unit in ("分钟", "分"):
-        return n * 60
+        return int(n * 60)
     if unit in ("小时", "时"):
-        return n * 3600
+        return int(n * 3600)
     if unit == "秒":
-        return n
+        return int(n)
+    if unit in ("天", "日"):
+        return int(n * 86400)
     return None
 
 def at_seg(openid, nick=""):
@@ -154,6 +161,45 @@ def guess_cmd(text):
         return best
     return best + num
 
+async def fire_reminder(bot, gid, msg):
+    try:
+        if gid:
+            await bot.send(msg, group_id=gid)
+        else:
+            await bot.send(msg)
+    except Exception:
+        try:
+            if gid:
+                await bot.send(msg, guild_id=gid)
+            else:
+                await bot.send(msg)
+        except Exception:
+            pass
+
+async def reminder_loop():
+    while True:
+        try:
+            now = time.time()
+            due = [r for r in data.get("reminders", []) if now >= r.get("at", 0)]
+            if due:
+                remain = [r for r in data.get("reminders", []) if now < r.get("at", 0)]
+                bots = nonebot.get_bots()
+                bot = None
+                if bots:
+                    bot = list(bots.values())[0]
+                for r in due:
+                    if bot:
+                        await fire_reminder(bot, r.get("gid"), r.get("msg", "时间到，组队提醒！"))
+                data["reminders"] = remain
+                save_data(data)
+        except Exception:
+            pass
+        await asyncio.sleep(10)
+
+@on_startup
+async def _start_reminder():
+    asyncio.create_task(reminder_loop())
+
 @on_message(priority=1).handle()
 async def handle(bot: Bot, event: Event):
     text = get_text(event)
@@ -167,21 +213,21 @@ async def handle(bot: Bot, event: Event):
 
     if is_exact(text, "丹丹菜单"):
         await send_msgs(bot, event,
-            "⭐ 组队助手 菜单\n━━━━━━━━\n"
-            "💫【开队】丹丹组队1 / 丹丹组队2（管理员，开队即存档）\n"
-            "💫【加入】发 1/2 玩家名 角色 加入对应队伍\n"
-            "💫【退出】组队退出1 / 组队退出2（自己退）\n"
-            "💫【帮退】组队退出1 昵称（管理员，用昵称踢人）\n"
-            "💫【结束】组队结束1 / 组队结束2（管理员）\n"
-            "💫【结束all】组队结束all（需1、2队都开启，管理员）\n"
-            "💫【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
-            "💫【定时】定时提醒 10分钟 内容（管理员）\n"
-            "💫【计数】组队计数1 / 组队计数2\n"
-            "💫【艾特】组队艾特 1 / 组队艾特 2\n"
-            "💫【回档】组队回档 N（看历史序号，管理员恢复队伍）\n"
-            "💫【保修】星星保修（修复已知问题）\n"
-            "💫【删历史】删除历史all（清空记录，管理员）\n"
-            "💫【历史】组队历史\n━━━━━━━━\n满8人自动艾特")
+            "组队助手 菜单\n"
+            "【开队】丹丹组队1 / 丹丹组队2（管理员，开队即存档）\n"
+            "【加入】发 1/2 玩家名 角色 加入对应队伍\n"
+            "【退出】组队退出1 / 组队退出2（自己退）\n"
+            "【帮退】组队退出1 昵称（管理员，用昵称踢人）\n"
+            "【结束】组队结束1 / 组队结束2（管理员）\n"
+            "【结束all】组队结束all（需1、2队都开启，管理员）\n"
+            "【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
+            "【定时】定时提醒 10分钟/1天 内容（管理员，到点自动发）\n"
+            "【计数】组队计数1 / 组队计数2\n"
+            "【回档】组队回档 N（看历史序号，管理员恢复队伍）\n"
+            "【保修】星星保修（修复已知问题）\n"
+            "【删历史】删除历史all（清空记录，管理员）\n"
+            "【历史】组队历史\n"
+            "满8人自动艾特")
         return
 
     if only_keyword_no_num(text, "丹丹组队"):
@@ -189,30 +235,32 @@ async def handle(bot: Bot, event: Event):
 
     if is_exact(text, "丹丹组队"):
         if not is_admin(event):
-            await send_msgs(bot, event, "[error] 只有管理员才能开队哦～"); return
+            await send_msgs(bot, event, "[error] 只有管理员才能开队哦~"); return
         tid = 1 if "1" in text else 2
         t = get_team(tid)
         if t and t["active"]:
-            await send_msgs(bot, event, f"[error] 第{tid}队已经在开了～"); return
+            await send_msgs(bot, event, f"[error] 第{tid}队已经在开了~"); return
         new_team(tid)
         archive_team(tid)
-        await send_msgs(bot, event, f"⭐ 第{tid}队已开启，最多两队并存～\n想加入的直接发「{tid} 你的玩家名 你的角色」即可")
+        await send_msgs(bot, event, f"第{tid}队已开启，最多两队并存~\n想加入的直接发「{tid} 你的玩家名 你的角色」即可")
         return
 
     if text.startswith("定时提醒"):
         body = text[len("定时提醒"):].strip()
-        mm = re.match(r"^(\d+\s*(?:分钟|分|小时|时|秒))\s*(.*)$", body)
+        mm = re.match(r"^(\d+\.?\d*\s*(?:分钟|分|小时|时|秒|天|日))\s*(.*)$", body)
         if not mm:
-            await send_msgs(bot, event, "[error] 格式：定时提醒 10分钟 提醒内容"); return
+            await send_msgs(bot, event, "[error] 格式：定时提醒 10分钟/1天 提醒内容"); return
         if not is_admin(event):
-            await send_msgs(bot, event, "[error] 只有管理员才能设提醒哦～"); return
+            await send_msgs(bot, event, "[error] 只有管理员才能设提醒哦~"); return
         secs = parse_duration(mm.group(1))
         msg = mm.group(2).strip() or "时间到，组队提醒！"
         if secs is None:
-            await send_msgs(bot, event, "[error] 时间格式不对，用 分钟/小时/秒"); return
-        await send_msgs(bot, event, f"⭐ 已设置 {mm.group(1)} 后提醒")
-        await asyncio.sleep(secs)
-        await send_msgs(bot, event, f"⏰ 提醒：{msg}")
+            await send_msgs(bot, event, "[error] 时间格式不对，用 分钟/小时/秒/天"); return
+        gid = str(getattr(event, "group_id", "") or getattr(event, "guild_id", "") or "")
+        data.setdefault("reminders", [])
+        data["reminders"].append({"at": int(time.time()) + secs, "gid": gid, "msg": msg})
+        save_data(data)
+        await send_msgs(bot, event, f"已设置 {mm.group(1)} 后提醒（到点自动发）")
         return
 
     m = re.fullmatch(r"([12])\s+(\S+)\s+(\S+)", text)
@@ -223,21 +271,21 @@ async def handle(bot: Bot, event: Event):
         if not team_open(tid):
             return
         t = get_team(tid)
-        if t.get("full"):
+        if t.get("full") or len(t["members"]) >= MAX_MEMBER:
             return
         nick = m.group(2); role = m.group(3)
         if uid in t["members"]:
             await send_msgs(bot, event, f"[error] 你已经在本队啦，当前 {len(t['members'])} 人"); return
         t["members"][uid] = {"openid": uid, "nick": nick, "role": role}
-        save_data(data)
         cnt = len(t["members"])
+        save_data(data)
         shown = f"{nick}（角色：{role}）"
         if cnt >= MAX_MEMBER:
             t["full"] = True
             save_data(data)
             await send_msgs(bot, event, f"第{tid}队已满员！后续加入不计入")
         else:
-            await send_msgs(bot, event, f"⭐ 加入成功！当前人数{cnt}人\n名称：{shown}")
+            await send_msgs(bot, event, f"加入成功！当前人数{cnt}人\n名称：{shown}")
         return
 
     if re.fullmatch(r"[12]\s*[！!。．.，,~～ ]*", text):
@@ -246,14 +294,13 @@ async def handle(bot: Bot, event: Event):
     if only_keyword_no_num(text, "组队退出"):
         await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
 
-    # 帮退：组队退出1 昵称（管理员，用昵称定位，不读@）
     if text.startswith("组队退出") and not is_exact(text, "组队退出"):
         if not is_admin(event):
-            await send_msgs(bot, event, "[error] 只有管理员才能帮别人退队哦～"); return
+            await send_msgs(bot, event, "[error] 只有管理员才能帮别人退队哦~"); return
         tid = 1 if "1" in text else 2
         t = get_team(tid)
         if not t or not t["active"]:
-            await send_msgs(bot, event, f"[error] 第{tid}队没开着呢～"); return
+            await send_msgs(bot, event, f"[error] 第{tid}队没开着呢~"); return
         name = text[len("组队退出"):].strip()
         name = name[1:].strip() if name and name[0] in "12" else name
         if not name:
@@ -266,22 +313,22 @@ async def handle(bot: Bot, event: Event):
         if t.get("full") and len(t["members"]) < MAX_MEMBER:
             t["full"] = False
         save_data(data)
-        await send_msgs(bot, event, f"⭐ 已帮「{name}」从第{tid}队退出，当前 {len(t['members'])} 人")
+        await send_msgs(bot, event, f"已帮「{name}」从第{tid}队退出，当前 {len(t['members'])} 人")
         return
 
     if is_exact(text, "组队退出"):
         tid = 1 if "1" in text else 2
         t = get_team(tid)
         if not t or not t["active"]:
-            await send_msgs(bot, event, f"[error] 第{tid}队没开着呢～"); return
+            await send_msgs(bot, event, f"[error] 第{tid}队没开着呢~"); return
         if uid in t["members"]:
             t["members"].pop(uid, None)
             if t.get("full") and len(t["members"]) < MAX_MEMBER:
                 t["full"] = False
             save_data(data)
-            await send_msgs(bot, event, f"⭐ 退出成功！第{tid}队当前人数{len(t['members'])}人")
+            await send_msgs(bot, event, f"退出成功！第{tid}队当前人数{len(t['members'])}人")
         else:
-            await send_msgs(bot, event, "[error] 你不在本队里哦～")
+            await send_msgs(bot, event, "[error] 你不在本队里哦~")
         return
 
     if only_keyword_no_num(text, "组队结束"):
@@ -289,25 +336,25 @@ async def handle(bot: Bot, event: Event):
 
     if is_exact(text, "组队结束"):
         if not is_admin(event):
-            await send_msgs(bot, event, "[error] 只有管理员才能结束组队～"); return
+            await send_msgs(bot, event, "[error] 只有管理员才能结束组队~"); return
         tid = 1 if "1" in text else 2
         t = get_team(tid)
         if not t:
-            await send_msgs(bot, event, f"[error] 第{tid}队本来就没开～"); return
+            await send_msgs(bot, event, f"[error] 第{tid}队本来就没开~"); return
         t["active"] = False; save_data(data)
-        await send_msgs(bot, event, f"⭐ 第{tid}队已停止组队")
+        await send_msgs(bot, event, f"第{tid}队已停止组队")
         return
 
     if is_exact(text, "组队结束all"):
         if not is_admin(event):
-            await send_msgs(bot, event, "[error] 只有管理员才能结束组队～"); return
+            await send_msgs(bot, event, "[error] 只有管理员才能结束组队~"); return
         if not (team_open(1) and team_open(2)):
             await send_msgs(bot, event, "[error]无法使用all指令！"); return
         for tid in (1, 2):
             t = get_team(tid)
             archive_team(tid)
             t["active"] = False; save_data(data)
-        await send_msgs(bot, event, "⭐ 已结束第1、2队")
+        await send_msgs(bot, event, "已结束第1、2队")
         return
 
     if is_exact(text, "星星保修"):
@@ -315,15 +362,15 @@ async def handle(bot: Bot, event: Event):
             if not data["teams"][tid].get("active") and not data["teams"][tid].get("members"):
                 data["teams"].pop(tid, None)
         save_data(data)
-        await send_msgs(bot, event, "⭐ 已修复已知问题，感谢反馈！如仍有异常请稍后重试～")
+        await send_msgs(bot, event, "已修复已知问题，感谢反馈！如仍有异常请稍后重试~")
         return
 
     if is_exact(text, "删除历史all"):
         if not is_admin(event):
-            await send_msgs(bot, event, "[error] 只有管理员才能删除历史记录哦～"); return
+            await send_msgs(bot, event, "[error] 只有管理员才能删除历史记录哦~"); return
         data["history"] = []
         save_data(data)
-        await send_msgs(bot, event, "⭐ 已清空所有组队历史记录")
+        await send_msgs(bot, event, "已清空所有组队历史记录")
         return
 
     if only_keyword_no_num(text, "组队备注"):
@@ -331,17 +378,17 @@ async def handle(bot: Bot, event: Event):
 
     if text.startswith("组队备注"):
         if not is_admin(event):
-            await send_msgs(bot, event, "[error] 只有管理员才能改备注～"); return
+            await send_msgs(bot, event, "[error] 只有管理员才能改备注~"); return
         tid = 1 if "1" in text else 2
         name = text[len("组队备注"):].strip()
         name = name[1:].strip() if name and name[0] in "12" else name
         t = get_team(tid)
         if not t:
-            await send_msgs(bot, event, f"[error] 第{tid}队还没开～"); return
+            await send_msgs(bot, event, f"[error] 第{tid}队还没开~"); return
         if not name:
             await send_msgs(bot, event, "[error] 格式：组队备注1 队伍名称"); return
         t["remark"] = name; t["name"] = name; save_data(data)
-        await send_msgs(bot, event, f"⭐ 组队{tid}备注成功，第{tid}队名称改为「{name}」"); return
+        await send_msgs(bot, event, f"组队{tid}备注成功，第{tid}队名称改为「{name}」"); return
 
     if only_keyword_no_num(text, "组队计数"):
         await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
@@ -350,7 +397,7 @@ async def handle(bot: Bot, event: Event):
         tid = 1 if "1" in text else 2
         t = get_team(tid)
         if not t or not t["active"]:
-            await send_msgs(bot, event, f"[error] 第{tid}队没开着呢～"); return
+            await send_msgs(bot, event, f"[error] 第{tid}队没开着呢~"); return
         lab = label(t) or f"第{tid}队"
         if not t["members"]:
             await send_msgs(bot, event, f'第{tid}队："{lab}"\n当前成员：\n（暂无）'); return
@@ -361,31 +408,11 @@ async def handle(bot: Bot, event: Event):
             lines.append(f"{i}. {nm}（角色：{rl}）")
         await send_msgs(bot, event, "\n".join(lines)); return
 
-    if only_keyword_no_num(text, "组队艾特"):
-        await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
-
-    if text.startswith("组队艾特"):
-        tid = 1 if "1" in text else 2
-        t = get_team(tid)
-        if not t or not t["active"]:
-            await send_msgs(bot, event, f"[error] 第{tid}队没开着呢～"); return
-        members = list(t["members"].values())
-        if not members:
-            await send_msgs(bot, event, f"[error] 第{tid}队暂时没人～"); return
-        await send_msgs(bot, event, f"第{tid}队已有{len(members)}人，正在尝试艾特群内队伍成员，请稍后…")
-        lines = ["群内队伍成员："]
-        for v in members:
-            nm = v.get("nick") or ""
-            rl = v.get("role") or ""
-            lines.append(f"@{nm}（角色：{rl}）")
-        await send_msgs(bot, event, "\n".join(lines))
-        return
-
     if is_exact(text, "组队历史"):
         hist = data.get("history", [])
         if not hist:
-            await send_msgs(bot, event, "📜 还没有任何组队记录哦～"); return
-        lines = ["📜 最近组队记录（含备注名）："]
+            await send_msgs(bot, event, "还没有任何组队记录哦~"); return
+        lines = ["最近组队记录（含备注名）："]
         for i, h in enumerate(hist[-10:], 1):
             tid = h.get("team_id")
             now_tag = " [now]" if team_open(tid) else ""
@@ -394,23 +421,22 @@ async def handle(bot: Bot, event: Event):
             lines.append(f"{i}. {name}（{cnt}人）{now_tag}")
         await send_msgs(bot, event, "\n".join(lines)); return
 
-    # 回档：组队回档 N（管理员，基于历史序号恢复队伍）
     if text.startswith("组队回档"):
         if not is_admin(event):
-            await send_msgs(bot, event, "[error] 只有管理员才能回档哦～"); return
+            await send_msgs(bot, event, "[error] 只有管理员才能回档哦~"); return
         arg = text[len("组队回档"):].strip()
         if not arg.isdigit():
             await send_msgs(bot, event, "[error] 格式：组队回档 N（N是历史序号）"); return
         idx = int(arg)
         hist = data.get("history", [])
         if not hist:
-            await send_msgs(bot, event, "[error] 还没有任何历史记录～"); return
+            await send_msgs(bot, event, "[error] 还没有任何历史记录~"); return
         if idx < 1 or idx > len(hist):
             await send_msgs(bot, event, f"[error] 序号超出范围，当前历史共 {len(hist)} 条"); return
         snap = hist[-len(hist) + idx - 1]
         tid = int(snap.get("team_id"))
         if team_open(tid):
-            await send_msgs(bot, event, f"[error] 第{tid}队正在开启中，请先结束再回档～"); return
+            await send_msgs(bot, event, f"[error] 第{tid}队正在开启中，请先结束再回档~"); return
         restored = {"members": {}, "remark": snap.get("remark", ""), "name": snap.get("name", ""),
                     "active": True, "full": snap.get("full", False)}
         for mem in snap.get("members", []):
@@ -419,7 +445,7 @@ async def handle(bot: Bot, event: Event):
         save_data(data)
         cnt = len(restored["members"])
         name = label(restored) or f"第{tid}队"
-        await send_msgs(bot, event, f"⭐ 已回档「{name}」到第{tid}队，当前 {cnt} 人～")
+        await send_msgs(bot, event, f"已回档「{name}」到第{tid}队，当前 {cnt} 人~")
         return
 
     if text.startswith("组队"):
