@@ -1,6 +1,7 @@
 from nonebot import on_message
 from nonebot.adapters.qq import Bot, MessageSegment, Event
-import json, os, asyncio, re, difflib
+import nonebot
+import json, os, asyncio, re, difflib, time
 
 try:
     from opencc import OpenCC
@@ -14,7 +15,6 @@ except Exception:
 BASE = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE, "team_data.json")
 MAX_MEMBER = 8
-MAX_SUB = 2
 ADMIN_OPENIDS = {
     "8F33BB8A446515723B3EBACA4D5E6574",
     "BE17FB9434A14FFED902CDAE49C7B606",
@@ -26,7 +26,7 @@ ALLOWED_GROUPS = {
 }
 
 CORE_CMDS = ["丹丹菜单", "丹丹组队", "组队退出", "组队结束", "组队结束all",
-             "组队备注", "组队计数", "组队历史", "定时提醒", "星星保修", "删除历史all", "组队回档", "替补"]
+             "组队备注", "组队计数", "组队历史", "星星保修", "删除历史all", "组队回档"]
 
 def join_allowed(event):
     gid = str(getattr(event, "group_id", "") or getattr(event, "guild_id", "") or "")
@@ -77,7 +77,7 @@ def get_text(event):
             out += seg.data.get("text", "")
         elif t == "mention":
             out += " @"
-    return to_simple(out.strip().strip("！!。.，,~～ ").strip())
+    return to_simple(out.strip().strip("！!。．.，,~～ ").strip())
 
 def get_team(tid):
     return data["teams"].get(str(tid))
@@ -87,7 +87,7 @@ def team_open(tid):
     return bool(t and t.get("active"))
 
 def new_team(tid):
-    data["teams"][str(tid)] = {"members": {}, "remark": "", "active": True, "name": "", "full": False, "subs": []}
+    data["teams"][str(tid)] = {"members": {}, "remark": "", "active": True, "name": "", "full": False}
     save_data(data)
 
 def archive_team(tid):
@@ -104,19 +104,6 @@ def archive_team(tid):
 
 def label(t):
     return t.get("remark") or t.get("name") or ""
-
-def parse_duration(s):
-    m = re.match(r"^(\d+\.?\d*)\s*(分钟|分|小时|时|秒)$", s)
-    if not m:
-        return None
-    n = float(m.group(1)); unit = m.group(2)
-    if unit in ("分钟", "分"):
-        return int(n * 60)
-    if unit in ("小时", "时"):
-        return int(n * 3600)
-    if unit == "秒":
-        return int(n)
-    return None
 
 def is_exact(text, keyword):
     return re.fullmatch(rf"{re.escape(keyword)}\s*[12]?\s*[！!。．.，,~～ ]*", text) is not None
@@ -142,11 +129,9 @@ def guess_cmd(text):
     best = match[0]
     if best == "组队结束all":
         return "组队结束all"
-    if best in ("组队备注", "定时提醒", "星星保修", "删除历史all", "组队回档", "替补"):
+    if best in ("组队备注", "星星保修", "删除历史all", "组队回档"):
         return best
-    return best + numasync def fire_reminder(bot, event, secs, msg):
-    await asyncio.sleep(secs)
-    await send_msgs(bot, event, msg)
+    return best + num
 
 @on_message(priority=1).handle()
 async def handle(bot: Bot, event: Event):
@@ -164,20 +149,17 @@ async def handle(bot: Bot, event: Event):
             "组队助手 菜单\n"
             "【开队】丹丹组队1 / 丹丹组队2（管理员，开队即存档）\n"
             "【加入】发 1/2 玩家名 角色 加入对应队伍\n"
-            "【替补】满员后发 替补 1/2 名称 角色 进替补（上限2）\n"
-            "【替补退出】替补退出 1/2（自己退）/ 替补退出 1/2 昵称（管理员踢）\n"
-            "【退出】组队退出1 / 组队退出2（自己退正式）\n"
+            "【退出】组队退出1 / 组队退出2（自己退）\n"
             "【帮退】组队退出1 昵称（管理员，用昵称踢人）\n"
             "【结束】组队结束1 / 组队结束2（管理员）\n"
             "【结束all】组队结束all（需1、2队都开启，管理员）\n"
             "【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
-            "【定时】定时提醒 10分钟/1小时 内容（管理员，到点自动发）\n"
             "【计数】组队计数1 / 组队计数2\n"
             "【回档】组队回档 N（看历史序号，管理员恢复队伍）\n"
             "【保修】星星保修（修复已知问题）\n"
             "【删历史】删除历史all（清空记录，管理员）\n"
             "【历史】组队历史\n"
-            "满8人自动艾特，有人退替补自动补位")
+            "满8人自动艾特")
         return
 
     if only_keyword_no_num(text, "丹丹组队"):
@@ -195,66 +177,6 @@ async def handle(bot: Bot, event: Event):
         await send_msgs(bot, event, f"第{tid}队已开启，最多两队并存~\n想加入的直接发「{tid} 你的玩家名 你的角色」即可")
         return
 
-    if text.startswith("定时提醒"):
-        body = text[len("定时提醒"):].strip()
-        mm = re.match(r"^(\d+\.?\d*\s*(?:分钟|分|小时|时|秒))\s*(.*)$", body)
-        if not mm:
-            await send_msgs(bot, event, "[error] 格式：定时提醒 10分钟/1小时 提醒内容"); return
-        if not is_admin(event):
-            await send_msgs(bot, event, "[error] 只有管理员才能设提醒哦~"); return
-        secs = parse_duration(mm.group(1))
-        msg = mm.group(2).strip() or "时间到，组队提醒！"
-        if secs is None:
-            await send_msgs(bot, event, "[error] 时间格式不对，用 分钟/小时/秒"); return
-        await send_msgs(bot, event, f"已设置 {mm.group(1)} 后提醒（到点自动发）")
-        asyncio.create_task(fire_reminder(bot, event, secs, msg))
-        return
-
-    if text.startswith("替补退出"):
-        if not text[len("替补退出"):].strip():
-            await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
-        tid = 1 if "1" in text else 2
-        t = get_team(tid)
-        if not t or not t["active"]:
-            await send_msgs(bot, event, f"[error] 第{tid}队没开着呢~"); return
-        rest = text[len("替补退出"):].strip()
-        rest = rest[1:].strip() if rest and rest[0] in "12" else rest
-        subs = t.setdefault("subs", [])
-        if rest:
-            if not is_admin(event):
-                await send_msgs(bot, event, "[error] 只有管理员才能踢替补哦~"); return
-            hit = [x for x in subs if x.get("nick") == rest]
-            if not hit:
-                await send_msgs(bot, event, f"[error] 替补里没找到「{rest}」"); return
-            subs.remove(hit[0]); save_data(data)
-            await send_msgs(bot, event, f"已把「{rest}」从第{tid}队替补移除，当前替补{len(subs)}人")
-        else:
-            hit = [x for x in subs if x.get("openid") == uid]
-            if not hit:
-                await send_msgs(bot, event, "[error] 你不在替补里哦~"); return
-            subs.remove(hit[0]); save_data(data)
-            await send_msgs(bot, event, f"你已退出第{tid}队替补，当前替补{len(subs)}人")
-        return
-
-    if text.startswith("替补"):
-        body = text[len("替补"):].strip()
-        mm = re.fullmatch(r"([12])\s+(\S+)\s+(\S+)", body)
-        if not mm:
-            await send_msgs(bot, event, "[error] 格式：替补 1/2 名称 角色"); return
-        tid = int(mm.group(1)); nick = mm.group(2); role = mm.group(3)
-        if not team_open(tid):
-            return
-        t = get_team(tid)
-        subs = t.setdefault("subs", [])
-        if uid in t["members"] or any(x.get("openid") == uid for x in subs):
-            await send_msgs(bot, event, "[error] 你已在正式队伍或替补里了~"); return
-        if len(subs) >= MAX_SUB:
-            await send_msgs(bot, event, f"[error] 替补已满（上限{MAX_SUB}）"); return
-        subs.append({"openid": uid, "nick": nick, "role": role})
-        save_data(data)
-        await send_msgs(bot, event, "⭐替补成功 如果有人退出将自动替补！")
-        return
-
     m = re.fullmatch(r"([12])\s+(\S+)\s+(\S+)", text)
     if m:
         if not join_allowed(event):
@@ -266,8 +188,7 @@ async def handle(bot: Bot, event: Event):
         if t.get("full") or len(t["members"]) >= MAX_MEMBER:
             return
         nick = m.group(2); role = m.group(3)
-        subs = t.setdefault("subs", [])
-        if uid in t["members"] or any(x.get("openid") == uid for x in subs):
+        if uid in t["members"]:
             await send_msgs(bot, event, f"[error] 你已经在本队啦，当前 {len(t['members'])} 人"); return
         t["members"][uid] = {"openid": uid, "nick": nick, "role": role}
         cnt = len(t["members"])
@@ -298,19 +219,14 @@ async def handle(bot: Bot, event: Event):
         name = name[1:].strip() if name and name[0] in "12" else name
         if not name:
             await send_msgs(bot, event, "[error] 格式：组队退出1 昵称"); return
-        t.setdefault("subs", [])
         if uid in t["members"]:
             await send_msgs(bot, event, "[error] 这是正式队员，请用组队退出（不带昵称）或自己退"); return
-        hit = [x for x in t["subs"] if x.get("nick") == name]
-        if not hit:
-            m2 = [k for k, v in t["members"].items() if v.get("nick") == name]
-            if not m2:
-                await send_msgs(bot, event, f"[error] 没找到叫「{name}」的人在第{tid}队"); return
-            t["members"].pop(m2[0], None)
-        else:
-            t["subs"].remove(hit[0])
+        m2 = [k for k, v in t["members"].items() if v.get("nick") == name]
+        if not m2:
+            await send_msgs(bot, event, f"[error] 没找到叫「{name}」的人在第{tid}队"); return
+        t["members"].pop(m2[0], None)
         save_data(data)
-        await send_msgs(bot, event, f"已帮「{name}」从第{tid}队退出，当前正式{len(t['members'])}人/替补{len(t['subs'])}人")
+        await send_msgs(bot, event, f"已帮「{name}」从第{tid}队退出，当前{len(t['members'])}人")
         return
 
     if is_exact(text, "组队退出"):
@@ -318,22 +234,12 @@ async def handle(bot: Bot, event: Event):
         t = get_team(tid)
         if not t or not t["active"]:
             await send_msgs(bot, event, f"[error] 第{tid}队没开着呢~"); return
-        t.setdefault("subs", [])
         if uid in t["members"]:
             t["members"].pop(uid, None)
             if t.get("full") and len(t["members"]) < MAX_MEMBER:
                 t["full"] = False
             save_data(data)
             await send_msgs(bot, event, f"退出成功！第{tid}队当前人数{len(t['members'])}人")
-            if t["subs"]:
-                nxt = t["subs"].pop(0)
-                t["members"][nxt["openid"]] = {"openid": nxt["openid"], "nick": nxt["nick"], "role": nxt["role"]}
-                save_data(data)
-                await send_msgs(bot, event, f"替补 {nxt['nick']} 已自动补位，当前{len(t['members'])}/8")
-        elif any(x.get("openid") == uid for x in t["subs"]):
-            t["subs"] = [x for x in t["subs"] if x.get("openid") != uid]
-            save_data(data)
-            await send_msgs(bot, event, f"你已退出第{tid}队替补，当前替补{len(t['subs'])}人")
         else:
             await send_msgs(bot, event, "[error] 你不在本队里哦~")
         return
@@ -348,7 +254,7 @@ async def handle(bot: Bot, event: Event):
         t = get_team(tid)
         if not t:
             await send_msgs(bot, event, f"[error] 第{tid}队本来就没开~"); return
-        t["active"] = False; t["subs"] = []; save_data(data)
+        t["active"] = False; save_data(data)
         await send_msgs(bot, event, f"第{tid}队已停止组队")
         return
 
@@ -360,9 +266,11 @@ async def handle(bot: Bot, event: Event):
         for tid in (1, 2):
             t = get_team(tid)
             archive_team(tid)
-            t["active"] = False; t["subs"] = []; save_data(data)
+            t["active"] = False; save_data(data)
         await send_msgs(bot, event, "已结束第1、2队")
-        returnif is_exact(text, "星星保修"):
+        return
+
+    if is_exact(text, "星星保修"):
         for tid in list(data["teams"].keys()):
             if not data["teams"][tid].get("active") and not data["teams"][tid].get("members"):
                 data["teams"].pop(tid, None)
@@ -403,18 +311,14 @@ async def handle(bot: Bot, event: Event):
         t = get_team(tid)
         if not t or not t["active"]:
             await send_msgs(bot, event, f"[error] 第{tid}队没开着呢~"); return
-        t.setdefault("subs", [])
         lab = label(t) or f"第{tid}队"
-        if not t["members"] and not t["subs"]:
-            await send_msgs(bot, event, f'第{tid}队："{lab}"\n当前成员：\n（暂无）\n替补：（无）'); return
+        if not t["members"]:
+            await send_msgs(bot, event, f'第{tid}队："{lab}"\n当前成员：\n（暂无）'); return
         lines = [f'第{tid}队："{lab}"', "当前成员："]
         for i, v in enumerate(t["members"].values(), 1):
             nm = v.get("nick") or ""
             rl = v.get("role") or ""
             lines.append(f"{i}. {nm}（角色：{rl}）")
-        lines.append(f"替补（{len(t['subs'])}/{MAX_SUB}）：")
-        for i, x in enumerate(t["subs"], 1):
-            lines.append(f"{i}. {x.get('nick')}（角色：{x.get('role')}）")
         await send_msgs(bot, event, "\n".join(lines)); return
 
     if is_exact(text, "组队历史"):
@@ -447,7 +351,7 @@ async def handle(bot: Bot, event: Event):
         if team_open(tid):
             await send_msgs(bot, event, f"[error] 第{tid}队正在开启中，请先结束再回档~"); return
         restored = {"members": {}, "remark": snap.get("remark", ""), "name": snap.get("name", ""),
-                    "active": True, "full": snap.get("full", False), "subs": []}
+                    "active": True, "full": snap.get("full", False)}
         for mem in snap.get("members", []):
             restored["members"][mem.get("openid")] = {"openid": mem.get("openid"), "nick": mem.get("nick", ""), "role": mem.get("role", "")}
         data["teams"][str(tid)] = restored
