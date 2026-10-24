@@ -25,7 +25,7 @@ ALLOWED_GROUPS = {
 }
 
 CORE_CMDS = ["丹丹菜单", "丹丹组队", "组队退出", "组队结束", "组队结束all",
-             "组队备注", "组队计数", "组队艾特", "组队历史", "定时提醒", "星星保修", "删除历史all", "组队回档"]
+             "组队备注", "组队计数", "组队历史", "定时提醒", "星星保修", "删除历史all", "组队回档"]
 
 # 群内才允许加入（防止非白名单群串数据）
 def join_allowed(event):
@@ -82,7 +82,7 @@ def get_text(event):
             out += seg.data.get("text", "")
         elif t == "mention":
             out += " @"
-    return to_simple(out.strip().strip("！!。.，,~～ ").strip())
+    return to_simple(out.strip().strip("！!。．.，,~～ ").strip())
 
 def get_team(tid):
     return data["teams"].get(str(tid))
@@ -177,7 +177,6 @@ async def handle(bot: Bot, event: Event):
             "💫【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
             "💫【定时】定时提醒 10分钟 内容（管理员）\n"
             "💫【计数】组队计数1 / 组队计数2\n"
-            "💫【艾特】组队艾特 1 / 组队艾特 2\n"
             "💫【回档】组队回档 N（看历史序号，管理员恢复队伍）\n"
             "💫【保修】星星保修（修复已知问题）\n"
             "💫【删历史】删除历史all（清空记录，管理员）\n"
@@ -235,7 +234,7 @@ async def handle(bot: Bot, event: Event):
         if cnt >= MAX_MEMBER:
             t["full"] = True
             save_data(data)
-            await send_msgs(bot, event, f"第{tid}队已满员！后续加入不计入")
+            await send_msgs(bot, event, f"已满员！后续加入不计入")
         else:
             await send_msgs(bot, event, f"⭐ 加入成功！当前人数{cnt}人\n名称：{shown}")
         return
@@ -360,26 +359,6 @@ async def handle(bot: Bot, event: Event):
             rl = v.get("role") or ""
             lines.append(f"{i}. {nm}（角色：{rl}）")
         await send_msgs(bot, event, "\n".join(lines)); return
-
-    if only_keyword_no_num(text, "组队艾特"):
-        await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
-
-    if text.startswith("组队艾特"):
-        tid = 1 if "1" in text else 2
-        t = get_team(tid)
-        if not t or not t["active"]:
-            await send_msgs(bot, event, f"[error] 第{tid}队没开着呢～"); return
-        members = list(t["members"].values())
-        if not members:
-            await send_msgs(bot, event, f"[error] 第{tid}队暂时没人～"); return
-        await send_msgs(bot, event, f"第{tid}队已有{len(members)}人，正在尝试艾特群内队伍成员，请稍后…")
-        lines = ["群内队伍成员："]
-        for v in members:
-            nm = v.get("nick") or ""
-            rl = v.get("role") or ""
-            lines.append(f"@{nm}（角色：{rl}）")
-        await send_msgs(bot, event, "\n".join(lines))
-        return
 
     if is_exact(text, "组队历史"):
         hist = data.get("history", [])
