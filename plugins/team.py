@@ -109,7 +109,7 @@ def label(t):
     return t.get("remark") or t.get("name") or ""
 
 def parse_duration(s):
-    m = re.match(r"^(\d+\.?\d*)\s*(分钟|分|小时|时|秒|天|日)$", s)
+    m = re.match(r"^(\d+\.?\d*)\s*(分钟|分|小时|时|秒)$", s)
     if not m:
         return None
     n = float(m.group(1)); unit = m.group(2)
@@ -119,8 +119,6 @@ def parse_duration(s):
         return int(n * 3600)
     if unit == "秒":
         return int(n)
-    if unit in ("天", "日"):
-        return int(n * 86400)
     return None
 
 def is_exact(text, keyword):
@@ -149,9 +147,7 @@ def guess_cmd(text):
         return "组队结束all"
     if best in ("组队备注", "定时提醒", "星星保修", "删除历史all", "组队回档", "替补"):
         return best
-    return best + num
-
-async def fire_reminder(bot, gid, msg):
+    return best + numasync def fire_reminder(bot, gid, msg):
     try:
         if gid:
             await bot.send(msg, group_id=gid)
@@ -214,7 +210,7 @@ async def handle(bot: Bot, event: Event):
             "【结束】组队结束1 / 组队结束2（管理员）\n"
             "【结束all】组队结束all（需1、2队都开启，管理员）\n"
             "【备注】组队备注1 / 组队备注2 + 名称（管理员）\n"
-            "【定时】定时提醒 10分钟/1天 内容（管理员，到点自动发）\n"
+            "【定时】定时提醒 10分钟/1小时 内容（管理员，到点自动发）\n"
             "【计数】组队计数1 / 组队计数2\n"
             "【回档】组队回档 N（看历史序号，管理员恢复队伍）\n"
             "【保修】星星保修（修复已知问题）\n"
@@ -240,15 +236,15 @@ async def handle(bot: Bot, event: Event):
 
     if text.startswith("定时提醒"):
         body = text[len("定时提醒"):].strip()
-        mm = re.match(r"^(\d+\.?\d*\s*(?:分钟|分|小时|时|秒|天|日))\s*(.*)$", body)
+        mm = re.match(r"^(\d+\.?\d*\s*(?:分钟|分|小时|时|秒))\s*(.*)$", body)
         if not mm:
-            await send_msgs(bot, event, "[error] 格式：定时提醒 10分钟/1天 提醒内容"); return
+            await send_msgs(bot, event, "[error] 格式：定时提醒 10分钟/1小时 提醒内容"); return
         if not is_admin(event):
             await send_msgs(bot, event, "[error] 只有管理员才能设提醒哦~"); return
         secs = parse_duration(mm.group(1))
         msg = mm.group(2).strip() or "时间到，组队提醒！"
         if secs is None:
-            await send_msgs(bot, event, "[error] 时间格式不对，用 分钟/小时/秒/天"); return
+            await send_msgs(bot, event, "[error] 时间格式不对，用 分钟/小时/秒"); return
         gid = str(getattr(event, "group_id", "") or getattr(event, "guild_id", "") or "")
         data.setdefault("reminders", [])
         data["reminders"].append({"at": int(time.time()) + secs, "gid": gid, "msg": msg})
@@ -441,71 +437,9 @@ async def handle(bot: Bot, event: Event):
         if not name:
             await send_msgs(bot, event, "[error] 格式：组队备注1 队伍名称"); return
         t["remark"] = name; t["name"] = name; save_data(data)
-        await send_msgs(bot, event, f"组队{tid}备注成功，第{tid}队名称改为「{name}」"); returnif only_keyword_no_num(text, "组队计数"):
-        await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
+        await send_msgs(bot, event, f"组队{tid}备注成功，第{tid}队名称改为「{name}」"); return
 
-    if is_exact(text, "组队计数"):
-        tid = 1 if "1" in text else 2
-        t = get_team(tid)
-        if not t or not t["active"]:
-            await send_msgs(bot, event, f"[error] 第{tid}队没开着呢~"); return
-        t.setdefault("subs", [])
-        lab = label(t) or f"第{tid}队"
-        if not t["members"] and not t["subs"]:
-            await send_msgs(bot, event, f'第{tid}队："{lab}"\n当前成员：\n（暂无）\n替补：（无）'); return
-        lines = [f'第{tid}队："{lab}"', "当前成员："]
-        for i, v in enumerate(t["members"].values(), 1):
-            nm = v.get("nick") or ""
-            rl = v.get("role") or ""
-            lines.append(f"{i}. {nm}（角色：{rl}）")
-        lines.append(f"替补（{len(t['subs'])}/{MAX_SUB}）：")
-        for i, x in enumerate(t["subs"], 1):
-            lines.append(f"{i}. {x.get('nick')}（角色：{x.get('role')}）")
-        await send_msgs(bot, event, "\n".join(lines)); return
-
-    if is_exact(text, "组队历史"):
-        hist = data.get("history", [])
-        if not hist:
-            await send_msgs(bot, event, "还没有任何组队记录哦~"); return
-        lines = ["最近组队记录（含备注名）："]
-        for i, h in enumerate(hist[-10:], 1):
-            tid = h.get("team_id")
-            now_tag = " [now]" if team_open(tid) else ""
-            name = h.get("remark") or h.get("name") or (f"第{tid}队")
-            cnt = len(h.get("members", []))
-            lines.append(f"{i}. {name}（{cnt}人）{now_tag}")
-        await send_msgs(bot, event, "\n".join(lines)); return
-
-    if text.startswith("组队回档"):
-        if not is_admin(event):
-            await send_msgs(bot, event, "[error] 只有管理员才能回档哦~"); return
-        arg = text[len("组队回档"):].strip()
-        if not arg.isdigit():
-            await send_msgs(bot, event, "[error] 格式：组队回档 N（N是历史序号）"); return
-        idx = int(arg)
-        hist = data.get("history", [])
-        if not hist:
-            await send_msgs(bot, event, "[error] 还没有任何历史记录~"); return
-        if idx < 1 or idx > len(hist):
-            await send_msgs(bot, event, f"[error] 序号超出范围，当前历史共 {len(hist)} 条"); return
-        snap = hist[-len(hist) + idx - 1]
-        tid = int(snap.get("team_id"))
-        if team_open(tid):
-            await send_msgs(bot, event, f"[error] 第{tid}队正在开启中，请先结束再回档~"); return
-        restored = {"members": {}, "remark": snap.get("remark", ""), "name": snap.get("name", ""),
-                    "active": True, "full": snap.get("full", False), "subs": []}
-        for mem in snap.get("members", []):
-            restored["members"][mem.get("openid")] = {"openid": mem.get("openid"), "nick": mem.get("nick", ""), "role": mem.get("role", "")}
-        data["teams"][str(tid)] = restored
-        save_data(data)
-        cnt = len(restored["members"])
-        name = label(restored) or f"第{tid}队"
-        await send_msgs(bot, event, f"已回档「{name}」到第{tid}队，当前 {cnt} 人~")
-        return
-
-    if text.startswith("组队"):
-        await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
-
-    guessed = guess_cmd(text)
-    if guessed:
-        await send_msgs(bot, event, f"[提示]猜你想发！({guessed})"); return
+    if only_keyword_no_num(text, "组队计数"):
+        await send_msgs
+[ ](mqqapi://markdown/node?nodeType=waitMsg&nodeID=longMsgWaitFullText&state=&text=%E5%89%A9%E4%BD%99%E5%86%85%E5%AE%B9%E4%BB%8D%E5%9C%A8%E8%BE%93%E5%87%BA%E4%B8%AD%EF%BC%8C%E8%AF%B7%E8%80%90%E5%BF%83%E7%AD%89%E5%BE%85&index=&itemsPerRow=&itemsNum=)
+[ ](mqqapi://markdown/node?nodeType=delete&nodeID=longMsgWaitFullText&state=&text=&index=&itemsPerRow=&itemsNum=)
