@@ -144,9 +144,7 @@ def guess_cmd(text):
         return "组队结束all"
     if best in ("组队备注", "定时提醒", "星星保修", "删除历史all", "组队回档", "替补"):
         return best
-    return best + num
-
-async def fire_reminder(bot, event, secs, msg):
+    return best + numasync def fire_reminder(bot, event, secs, msg):
     await asyncio.sleep(secs)
     await send_msgs(bot, event, msg)
 
@@ -364,9 +362,7 @@ async def handle(bot: Bot, event: Event):
             archive_team(tid)
             t["active"] = False; t["subs"] = []; save_data(data)
         await send_msgs(bot, event, "已结束第1、2队")
-        return
-
-    if is_exact(text, "星星保修"):
+        returnif is_exact(text, "星星保修"):
         for tid in list(data["teams"].keys()):
             if not data["teams"][tid].get("active") and not data["teams"][tid].get("members"):
                 data["teams"].pop(tid, None)
@@ -429,6 +425,41 @@ async def handle(bot: Bot, event: Event):
         for i, h in enumerate(hist[-10:], 1):
             tid = h.get("team_id")
             now_tag = " [now]" if team_open(tid) else ""
+            name = h.get("remark") or h.get("name") or (f"第{tid}队")
+            cnt = len(h.get("members", []))
+            lines.append(f"{i}. {name}（{cnt}人）{now_tag}")
+        await send_msgs(bot, event, "\n".join(lines)); return
 
-[ ](mqqapi://markdown/node?nodeType=waitMsg&nodeID=longMsgWaitFullText&state=&text=%E5%89%A9%E4%BD%99%E5%86%85%E5%AE%B9%E4%BB%8D%E5%9C%A8%E8%BE%93%E5%87%BA%E4%B8%AD%EF%BC%8C%E8%AF%B7%E8%80%90%E5%BF%83%E7%AD%89%E5%BE%85&index=&itemsPerRow=&itemsNum=)
-[ ](mqqapi://markdown/node?nodeType=delete&nodeID=longMsgWaitFullText&state=&text=&index=&itemsPerRow=&itemsNum=)
+    if text.startswith("组队回档"):
+        if not is_admin(event):
+            await send_msgs(bot, event, "[error] 只有管理员才能回档哦~"); return
+        arg = text[len("组队回档"):].strip()
+        if not arg.isdigit():
+            await send_msgs(bot, event, "[error] 格式：组队回档 N（N是历史序号）"); return
+        idx = int(arg)
+        hist = data.get("history", [])
+        if not hist:
+            await send_msgs(bot, event, "[error] 还没有任何历史记录~"); return
+        if idx < 1 or idx > len(hist):
+            await send_msgs(bot, event, f"[error] 序号超出范围，当前历史共 {len(hist)} 条"); return
+        snap = hist[-len(hist) + idx - 1]
+        tid = int(snap.get("team_id"))
+        if team_open(tid):
+            await send_msgs(bot, event, f"[error] 第{tid}队正在开启中，请先结束再回档~"); return
+        restored = {"members": {}, "remark": snap.get("remark", ""), "name": snap.get("name", ""),
+                    "active": True, "full": snap.get("full", False), "subs": []}
+        for mem in snap.get("members", []):
+            restored["members"][mem.get("openid")] = {"openid": mem.get("openid"), "nick": mem.get("nick", ""), "role": mem.get("role", "")}
+        data["teams"][str(tid)] = restored
+        save_data(data)
+        cnt = len(restored["members"])
+        name = label(restored) or f"第{tid}队"
+        await send_msgs(bot, event, f"已回档「{name}」到第{tid}队，当前 {cnt} 人~")
+        return
+
+    if text.startswith("组队"):
+        await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
+
+    guessed = guess_cmd(text)
+    if guessed:
+        await send_msgs(bot, event, f"[提示]猜你想发！({guessed})"); return
