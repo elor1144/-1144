@@ -454,3 +454,4 @@ async def handle(bot: Bot, event: Event):
     guessed = guess_cmd(text)
     if guessed:
         await send_msgs(bot, event, f"[提示]猜你想发！({guessed})"); return
+    
