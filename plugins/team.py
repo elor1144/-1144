@@ -1,8 +1,6 @@
 from nonebot import on_message
 from nonebot.adapters.qq import Bot, MessageSegment, Event
-from nonebot import get_driver
-import nonebot
-import json, os, asyncio, re, difflib, time
+import json, os, asyncio, re, difflib
 
 try:
     from opencc import OpenCC
@@ -45,7 +43,6 @@ def load_data():
         d = {}
     d.setdefault("teams", {})
     d.setdefault("history", [])
-    d.setdefault("reminders", [])
     return d
 
 def save_data(d):
@@ -147,45 +144,11 @@ def guess_cmd(text):
         return "组队结束all"
     if best in ("组队备注", "定时提醒", "星星保修", "删除历史all", "组队回档", "替补"):
         return best
-    return best + numasync def fire_reminder(bot, gid, msg):
-    try:
-        if gid:
-            await bot.send(msg, group_id=gid)
-        else:
-            await bot.send(msg)
-    except Exception:
-        try:
-            if gid:
-                await bot.send(msg, guild_id=gid)
-            else:
-                await bot.send(msg)
-        except Exception:
-            pass
+    return best + num
 
-async def reminder_loop():
-    while True:
-        try:
-            now = time.time()
-            due = [r for r in data.get("reminders", []) if now >= r.get("at", 0)]
-            if due:
-                remain = [r for r in data.get("reminders", []) if now < r.get("at", 0)]
-                bots = nonebot.get_bots()
-                bot = None
-                if bots:
-                    bot = list(bots.values())[0]
-                for r in due:
-                    if bot:
-                        await fire_reminder(bot, r.get("gid"), r.get("msg", "时间到，组队提醒！"))
-                data["reminders"] = remain
-                save_data(data)
-        except Exception:
-            pass
-        await asyncio.sleep(10)
-
-driver = get_driver()
-@driver.on_startup
-async def _start_reminder():
-    asyncio.create_task(reminder_loop())
+async def fire_reminder(bot, event, secs, msg):
+    await asyncio.sleep(secs)
+    await send_msgs(bot, event, msg)
 
 @on_message(priority=1).handle()
 async def handle(bot: Bot, event: Event):
@@ -245,11 +208,8 @@ async def handle(bot: Bot, event: Event):
         msg = mm.group(2).strip() or "时间到，组队提醒！"
         if secs is None:
             await send_msgs(bot, event, "[error] 时间格式不对，用 分钟/小时/秒"); return
-        gid = str(getattr(event, "group_id", "") or getattr(event, "guild_id", "") or "")
-        data.setdefault("reminders", [])
-        data["reminders"].append({"at": int(time.time()) + secs, "gid": gid, "msg": msg})
-        save_data(data)
         await send_msgs(bot, event, f"已设置 {mm.group(1)} 后提醒（到点自动发）")
+        asyncio.create_task(fire_reminder(bot, event, secs, msg))
         return
 
     if text.startswith("替补退出"):
@@ -440,6 +400,35 @@ async def handle(bot: Bot, event: Event):
         await send_msgs(bot, event, f"组队{tid}备注成功，第{tid}队名称改为「{name}」"); return
 
     if only_keyword_no_num(text, "组队计数"):
-        await send_msgs
+        await send_msgs(bot, event, "[error]请加上队伍号！(在后面加上1/2)"); return
+
+    if is_exact(text, "组队计数"):
+        tid = 1 if "1" in text else 2
+        t = get_team(tid)
+        if not t or not t["active"]:
+            await send_msgs(bot, event, f"[error] 第{tid}队没开着呢~"); return
+        t.setdefault("subs", [])
+        lab = label(t) or f"第{tid}队"
+        if not t["members"] and not t["subs"]:
+            await send_msgs(bot, event, f'第{tid}队："{lab}"\n当前成员：\n（暂无）\n替补：（无）'); return
+        lines = [f'第{tid}队："{lab}"', "当前成员："]
+        for i, v in enumerate(t["members"].values(), 1):
+            nm = v.get("nick") or ""
+            rl = v.get("role") or ""
+            lines.append(f"{i}. {nm}（角色：{rl}）")
+        lines.append(f"替补（{len(t['subs'])}/{MAX_SUB}）：")
+        for i, x in enumerate(t["subs"], 1):
+            lines.append(f"{i}. {x.get('nick')}（角色：{x.get('role')}）")
+        await send_msgs(bot, event, "\n".join(lines)); return
+
+    if is_exact(text, "组队历史"):
+        hist = data.get("history", [])
+        if not hist:
+            await send_msgs(bot, event, "还没有任何组队记录哦~"); return
+        lines = ["最近组队记录（含备注名）："]
+        for i, h in enumerate(hist[-10:], 1):
+            tid = h.get("team_id")
+            now_tag = " [now]" if team_open(tid) else ""
+
 [ ](mqqapi://markdown/node?nodeType=waitMsg&nodeID=longMsgWaitFullText&state=&text=%E5%89%A9%E4%BD%99%E5%86%85%E5%AE%B9%E4%BB%8D%E5%9C%A8%E8%BE%93%E5%87%BA%E4%B8%AD%EF%BC%8C%E8%AF%B7%E8%80%90%E5%BF%83%E7%AD%89%E5%BE%85&index=&itemsPerRow=&itemsNum=)
 [ ](mqqapi://markdown/node?nodeType=delete&nodeID=longMsgWaitFullText&state=&text=&index=&itemsPerRow=&itemsNum=)
